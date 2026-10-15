@@ -1,0 +1,20 @@
+{
+  "name": "app-orari-pizzeria-hosteleria",
+  "version": "2.0.0",
+  "description": "Applicazione completa per la gestione turni, calcolo ore, straordinari ordinari e festivi infrasettimanali per il settore ristorazione/hosteleria",
+  "scripts": {
+    "test": "node test_calcolo.js",
+    "push": "clasp push"
+  },
+  "keywords": [
+    "google-apps-script",
+    "hosteleria",
+    "pizzeria",
+    "orari",
+    "turni",
+    "festivi",
+    "straordinari"
+  ],
+  "author": "",
+  "license": "MIT"
+}

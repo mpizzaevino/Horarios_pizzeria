@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Control de Horarios y Turnos</title>
+  <style>
+    :root {
+      --vino: #6d1223;
+      --vino-oscuro: #430915;
+      --oro: #d4a64a;
+      --crema: #f8f4ed;
+      --texto: #312725;
+      --gris: #6b7280;
+      --borde: #dfd8cc;
+      --verde: #13744a;
+      --naranja: #a85512;
+      --naranja-bg: #fff3e0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--crema); color: var(--texto); font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; min-height: 100vh; }
+    @media print { body { display: none !important; } }
+
+    .cabecera { background: linear-gradient(135deg, var(--vino-oscuro) 0%, var(--vino) 60%, #8b1a2e 100%); color: white; padding: 28px 20px 22px; text-align: center; box-shadow: 0 3px 15px rgba(0,0,0,.25); }
+    .logo-marca { font-size: 11px; font-weight: 900; letter-spacing: 4px; text-transform: uppercase; color: var(--oro); margin-bottom: 6px; }
+    .logo-nombre { font-size: 26px; font-weight: 700; letter-spacing: 1px; }
+    .logo-icono { font-size: 32px; margin-bottom: 8px; }
+    .cabecera-sub { margin-top: 10px; font-size: 13px; color: rgba(255,255,255,.75); }
+
+    .contenedor { width: min(820px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 60px; }
+
+    .estado-carga { text-align: center; padding: 60px 20px; color: var(--gris); }
+    .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top-color: var(--vino); border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 18px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .estado-error { margin: 30px 0; padding: 22px; border: 1px solid #f5c6cb; border-radius: 12px; background: #fff5f6; color: #842029; text-align: center; }
+    .icono-error { font-size: 40px; margin-bottom: 10px; }
+
+    .tarjeta { background: white; border: 1px solid var(--borde); border-radius: 14px; padding: 22px; margin-bottom: 18px; box-shadow: 0 2px 10px rgba(0,0,0,.05); }
+    .tarjeta h2 { font-size: 18px; margin-bottom: 4px; color: var(--vino); }
+    .tarjeta .periodo { font-size: 13px; color: var(--gris); margin-bottom: 16px; }
+
+    .semanas-lista { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+    .boton-semana { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 14px 18px; border: 2px solid var(--borde); border-radius: 10px; background: white; color: var(--texto); font-size: 14px; font-weight: 600; cursor: pointer; text-align: left; transition: border-color .18s, background .18s, transform .1s; }
+    .boton-semana:hover { border-color: var(--vino); background: #fdf5f6; transform: translateX(3px); }
+    .boton-semana.activa { border-color: var(--vino); background: var(--vino); color: white; }
+    .flecha { font-size: 18px; transition: transform .18s; }
+    .boton-semana.activa .flecha { transform: rotate(90deg); }
+    .horas-extra { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; background: var(--naranja-bg); color: var(--naranja); }
+    .boton-semana.activa .horas-extra { background: rgba(255,255,255,.2); color: rgba(255,255,255,.9); }
+
+    .detalle-semana { display: none; margin-top: 4px; padding: 16px; border: 1px solid #e8e0d5; border-radius: 10px; background: #fffbf6; animation: slideDown .2s ease; }
+    .detalle-semana.visible { display: block; }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+    .tabla-dias { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .tabla-dias th { background: #f5f1ea; padding: 9px 10px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: #584d46; border-bottom: 1px solid var(--borde); }
+    .tabla-dias td { padding: 10px; border-bottom: 1px solid #eee7dc; vertical-align: top; }
+    .tabla-dias tr:last-child td { border-bottom: none; }
+    .tabla-dias tr.dia-cierre td { background: #ffe8c0; color: #8b4600; font-style: italic; }
+    .dia-nombre { font-weight: 700; }
+    .dia-fecha { font-size: 11px; color: var(--gris); }
+    .sin-turno { color: #b0a89e; font-size: 12px; font-style: italic; }
+
+    .totales-semana { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; padding: 12px; background: #f7f3ec; border-radius: 8px; }
+    .total-chip { font-size: 12px; font-weight: 700; }
+    .total-chip.extra { color: var(--naranja); }
+
+    .resumen-global { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 18px; }
+    .resumen-empleado { padding: 14px; border: 1px solid var(--borde); border-radius: 10px; background: white; }
+    .resumen-empleado h4 { font-size: 13px; margin-bottom: 6px; }
+    .resumen-empleado .rol { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--naranja); margin-bottom: 8px; }
+    .resumen-empleado .linea { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px; }
+    .extra-valor { font-weight: 700; color: var(--naranja); }
+
+    /* Compensación */
+    .busta-paga { max-width: 600px; margin: 0 auto; }
+    .busta-cabecera { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 2px solid var(--borde); }
+    .busta-empresa { font-size: 12px; color: var(--gris); }
+    .busta-empresa strong { display: block; font-size: 15px; color: var(--texto); margin-bottom: 2px; }
+    .busta-num { text-align: right; font-size: 12px; color: var(--gris); }
+    .busta-num strong { display: block; font-size: 15px; color: var(--vino); }
+    .busta-empleado { background: #f7f3ec; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px; }
+    .busta-empleado h3 { font-size: 17px; margin-bottom: 4px; }
+    .busta-empleado .periodo { font-size: 12px; color: var(--gris); }
+    .busta-tabla { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
+    .busta-tabla th { background: var(--vino); color: white; padding: 9px 12px; text-align: left; font-size: 12px; }
+    .busta-tabla td { padding: 10px 12px; border-bottom: 1px solid #ece6dc; font-size: 13px; }
+    .busta-tabla tr:last-child td { border-bottom: none; }
+    .busta-tabla td.num { text-align: right; font-weight: 700; }
+    .busta-tabla tr.fila-total td { background: #f5f1ea; font-weight: 700; border-top: 2px solid var(--borde); }
+    .busta-importe { display: flex; justify-content: space-between; align-items: center; padding: 18px 20px; background: linear-gradient(135deg, var(--vino-oscuro), var(--vino)); border-radius: 12px; color: white; }
+    .busta-importe .label { font-size: 13px; opacity: .85; }
+    .busta-importe .valor { font-size: 26px; font-weight: 800; }
+    .busta-justificacion { margin-top: 14px; padding: 12px 16px; background: #fff9ec; border: 1px solid #f0d990; border-radius: 8px; font-size: 12px; color: #6b5700; }
+    .busta-justificacion strong { display: block; margin-bottom: 4px; }
+    .busta-sello { margin-top: 20px; text-align: center; font-size: 11px; color: #b0a89e; }
+
+    /* F10: VISTA DIRIGENTE MATRIZ GENERAL */
+    .tabla-matriz-dirigente { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .tabla-matriz-dirigente th { background: var(--vino); color: white; padding: 9px 10px; text-align: center; font-weight: bold; border: 1px solid #540e1b; font-size: 11px; letter-spacing: .5px; }
+    .tabla-matriz-dirigente td { padding: 8px 10px; border: 1px solid #dfd8cc; vertical-align: middle; }
+    .tabla-matriz-dirigente tr.fila-dia-separador td { border-top: 2px solid var(--vino); }
+    .celda-cierre-matriz { background: #ffecd6 !important; color: #a85512 !important; font-weight: bold; text-align: center; }
+
+    @media (max-width: 560px) {
+      .logo-nombre { font-size: 20px; }
+      .busta-cabecera { flex-direction: column; }
+      .busta-num { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <header class="cabecera">
+    <div class="logo-icono">📋</div>
+    <div class="logo-marca">Portal de Consulta</div>
+    <div class="logo-nombre">Control de Horarios y Turnos</div>
+    <div class="cabecera-sub" id="subtituloCabecera">Cargando tu información...</div>
+  </header>
+
+  <main class="contenedor" id="contenidoPrincipal">
+    <div class="estado-carga">
+      <div class="spinner"></div>
+      <p>Obteniendo datos del servidor...</p>
+    </div>
+  </main>
+
+  <script>
+    function escaparHTML(v) {
+      return String(v == null ? '' : v)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function numero(v) {
+      var n = Math.round((Number(v)||0)*2)/2;
+      return n.toLocaleString('es-ES',{minimumFractionDigits:0,maximumFractionDigits:1});
+    }
+    function euros(v) {
+      return Number(v||0).toLocaleString('es-ES',{style:'currency',currency:'EUR'});
+    }
+    function fechaLegible(f) {
+      if (!f) return '';
+      var s = String(f);
+      var d = s.length===10 ? new Date(s+'T12:00:00') : new Date(s);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'});
+    }
+    var DIAS_SEMANA = ['Lunes','Martes','Miercoles','Jueves','Viernes','Sabado','Domingo'];
+    var MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+    function generarFechas(desde, hasta) {
+      var fechas = [];
+      var cur = new Date(desde+'T12:00:00');
+      var end = new Date(hasta+'T12:00:00');
+      while (cur <= end) {
+        var y = cur.getFullYear();
+        var m = String(cur.getMonth()+1).padStart(2,'0');
+        var d = String(cur.getDate()).padStart(2,'0');
+        fechas.push(y+'-'+m+'-'+d);
+        cur.setDate(cur.getDate()+1);
+      }
+      return fechas;
+    }
+
+    function agruparEnSemanas(fechas) {
+      var semanas = [];
+      for (var i=0; i<fechas.length; i+=7) semanas.push(fechas.slice(i,i+7));
+      return semanas;
+    }
+
+    function nombreSemana(p, u) {
+      var d1 = new Date(p+'T12:00:00'), d2 = new Date(u+'T12:00:00');
+      if (d1.getMonth()===d2.getMonth()) {
+        return 'Semana del '+d1.getDate()+' al '+d2.getDate()+' de '+MESES[d1.getMonth()]+' de '+d1.getFullYear();
+      }
+      return 'Semana del '+d1.getDate()+' de '+MESES[d1.getMonth()]+' al '+d2.getDate()+' de '+MESES[d2.getMonth()]+' de '+d2.getFullYear();
+    }
+
+    function round2(n) { return Math.round((Number(n)||0)*2)/2; }
+
+    function horasSemanaEmp(asigs, empId, fechas) {
+      return asigs.filter(function(a){ return a.employeeId===empId && fechas.indexOf(a.date)>=0; })
+        .reduce(function(s,a){ return s+Number(a.hours||0); }, 0);
+    }
+
+    function toggleSemana(idx) {
+      document.querySelectorAll('.detalle-semana').forEach(function(el,i){
+        var ab = el.classList.contains('visible');
+        if (i===idx) {
+          el.classList.toggle('visible', !ab);
+          document.querySelectorAll('.boton-semana')[i].classList.toggle('activa', !ab);
+        } else {
+          el.classList.remove('visible');
+          document.querySelectorAll('.boton-semana')[i].classList.remove('activa');
+        }
+      });
+    }
+
+    function formatearHorasHHMMSS(h) {
+      if (!h || isNaN(h)) return '00:00:00';
+      var mins = Math.round(h * 60);
+      var hr = Math.floor(mins / 60);
+      var mn = mins % 60;
+      return String(hr).padStart(2, '0') + ':' + String(mn).padStart(2, '0') + ':00';
+    }
+
+    function renderMatrizGeneralHTML(datos) {
+      var cal = datos.calendario;
+      var asigs = datos.asignaciones || [];
+      var emps = datos.empleados || [];
+      var cierres = cal.cierres || [];
+      var turnosDef = cal.turnos || {
+        manana: { nombre: 'Mañana', inicio: '10:00', fin: '16:00' },
+        tarde: { nombre: 'Comida', inicio: '13:00', fin: '16:30' },
+        cena: { nombre: 'Cena', inicio: '19:30', fin: '23:30' }
+      };
+      var turnosActivos = cal.turnosActivosPorDia || {};
+
+      var fechas = generarFechas(cal.desde, cal.hasta);
+
+      var FRANJAS = [
+        { key: 'manana', defaultNombre: 'Mañana', defaultInicio: '10:00', defaultFin: '16:00' },
+        { key: 'tarde', defaultNombre: 'Comida', defaultInicio: '13:00', defaultFin: '16:30' },
+        { key: 'cena', defaultNombre: 'Cena', defaultInicio: '19:30', defaultFin: '23:30' }
+      ];
+
+      var ROLES = ['COCINA', 'PIZZERIA', 'SALA'];
+
+      var filasHTML = '';
+
+      fechas.forEach(function(fecha, fIdx) {
+        var dd = new Date(fecha + 'T12:00:00');
+        var diaw = dd.getDay();
+        var nombreDia = DIAS_SEMANA[diaw === 0 ? 6 : diaw - 1];
+        var esCierre = cierres.indexOf(fecha) >= 0;
+        var cfgDia = turnosActivos[nombreDia] || {};
+
+        var etiquetaDia = '<strong>' + nombreDia.toUpperCase() + '</strong><br>' +
+          '<span style="font-size:11px;color:var(--gris);">' + fechaLegible(fecha) + '</span>';
+
+        if (esCierre) {
+          filasHTML += '<tr class="fila-dia-separador">' +
+            '<td style="min-width:130px; font-weight:bold; background:#fff8ee;">' + etiquetaDia + '</td>' +
+            '<td class="celda-cierre-matriz">CIERRE</td>' +
+            '<td class="celda-cierre-matriz">—</td>' +
+            '<td class="celda-cierre-matriz">—</td>' +
+            '<td class="celda-cierre-matriz">00:00:00</td>' +
+            '<td colspan="3" class="celda-cierre-matriz" style="font-size:12px; letter-spacing:1px;">🔒 LOCAL CERRADO (CIERRE)</td>' +
+            '</tr>';
+          return;
+        }
+
+        FRANJAS.forEach(function(franja, rIdx) {
+          var infoTurno = turnosDef[franja.key] || {};
+          var nombreTurno = infoTurno.nombre || franja.defaultNombre;
+          var inicio = infoTurno.inicio || franja.defaultInicio;
+          var fin = infoTurno.fin || franja.defaultFin;
+
+          var aParts = String(inicio).split(':');
+          var bParts = String(fin).split(':');
+          var mA = Number(aParts[0]) * 60 + Number(aParts[1] || 0);
+          var mB = Number(bParts[0]) * 60 + Number(bParts[1] || 0);
+          if (mB < mA) mB += 1440;
+          var duracion = (mB - mA) / 60;
+          var duracionFmt = formatearHorasHHMMSS(duracion);
+
+          var estaActivo = cfgDia[franja.key] !== false;
+
+          var celdaDia = rIdx === 0
+            ? '<td rowspan="3" style="min-width:130px; font-weight:bold; background:#faf7f2; border-top:2px solid var(--vino);">' + etiquetaDia + '</td>'
+            : '';
+
+          var claseFila = rIdx === 0 ? 'class="fila-dia-separador"' : '';
+
+          if (!estaActivo) {
+            filasHTML += '<tr ' + claseFila + '>' +
+              celdaDia +
+              '<td><strong>' + escaparHTML(nombreTurno) + '</strong></td>' +
+              '<td>' + escaparHTML(inicio) + '</td>' +
+              '<td>' + escaparHTML(fin) + '</td>' +
+              '<td>00:00:00</td>' +
+              '<td colspan="3" style="background:#f7f3ec; text-align:center; color:#999; font-style:italic;">CIERRE / Sin servicio</td>' +
+              '</tr>';
+            return;
+          }
+
+          var asigns = asigs.filter(function(a) {
+            if (a.date !== fecha) return false;
+            if (a.shiftKey && a.shiftKey === franja.key) return true;
+            if (a.shiftName && (a.shiftName.toLowerCase() === nombreTurno.toLowerCase() || a.shiftName.toLowerCase() === franja.defaultNombre.toLowerCase())) return true;
+            return false;
+          });
+
+          var celdasRoles = ROLES.map(function(rol) {
+            var empsRol = asigns.filter(function(a) {
+              if (a.role) {
+                return a.role.toUpperCase() === rol;
+              }
+              var emp = emps.find(function(e) { return e.id === a.employeeId; });
+              if (emp) {
+                var depts = (Array.isArray(emp.depts) && emp.depts.length) ? emp.depts : [emp.dept];
+                return depts.indexOf(rol) >= 0;
+              }
+              return false;
+            });
+
+            var necesidadTurno = (cal.necesidades && cal.necesidades[franja.key]) || {};
+            var cantidadNecesaria = Number(necesidadTurno[rol] || 0);
+
+            if (cantidadNecesaria > 0 && empsRol.length < cantidadNecesaria) {
+              if (empsRol.length === 0) {
+                return '<td style="text-align:center; background-color:#ffe8e8; color:#d93025; font-weight:bold; border:1px solid #f28b82;">' +
+                  '⚠️ Sin cubrir (' + cantidadNecesaria + ')' +
+                  '</td>';
+              } else {
+                var nombresHtml = empsRol.map(function(a) {
+                  var emp = emps.find(function(e) { return e.id === a.employeeId; });
+                  var nombreEmp = emp ? emp.name : (a.employeeName || 'Desconocido');
+                  var badgeAuto = a.compensadoAuto ? ' <span title="Turno compensado automáticamente" style="color:var(--naranja); font-size:11px;">⚡</span>' : '';
+                  return '<strong>' + escaparHTML(nombreEmp) + '</strong>' + badgeAuto;
+                }).join('<br>');
+                return '<td style="background-color:#fff0f0; border:1px solid #f28b82;">' +
+                  nombresHtml +
+                  '<div style="color:#d93025; font-size:11px; font-weight:bold; margin-top:3px;">⚠️ Faltan ' + (cantidadNecesaria - empsRol.length) + '</div>' +
+                  '</td>';
+              }
+            }
+
+            if (!empsRol.length) {
+              return '<td style="text-align:center; color:#bbb; font-style:italic;">—</td>';
+            }
+
+            var nombresHtml = empsRol.map(function(a) {
+              var emp = emps.find(function(e) { return e.id === a.employeeId; });
+              var nombreEmp = emp ? emp.name : (a.employeeName || 'Desconocido');
+              var badgeAuto = a.compensadoAuto ? ' <span title="Turno compensado automáticamente" style="color:var(--naranja); font-size:11px;">⚡</span>' : '';
+              return '<strong>' + escaparHTML(nombreEmp) + '</strong>' + badgeAuto;
+            }).join('<br>');
+
+            return '<td>' + nombresHtml + '</td>';
+          }).join('');
+
+          filasHTML += '<tr ' + claseFila + '>' +
+            celdaDia +
+            '<td><strong>' + escaparHTML(nombreTurno) + '</strong></td>' +
+            '<td>' + escaparHTML(inicio) + '</td>' +
+            '<td>' + escaparHTML(fin) + '</td>' +
+            '<td><strong>' + duracionFmt + '</strong></td>' +
+            celdasRoles +
+            '</tr>';
+        });
+      });
+
+      return (
+        '<div style="overflow-x:auto; margin-top:12px;">' +
+          '<table class="tabla-matriz-dirigente">' +
+            '<thead>' +
+              '<tr>' +
+                '<th>DÍA / FECHA</th>' +
+                '<th>TURNO</th>' +
+                '<th>DE</th>' +
+                '<th>A</th>' +
+                '<th>TOT HORAS</th>' +
+                '<th>COCINA</th>' +
+                '<th>PIZZERIA</th>' +
+                '<th>SALA</th>' +
+              '</tr>' +
+            '</thead>' +
+            '<tbody>' +
+              filasHTML +
+            '</tbody>' +
+          '</table>' +
+        '</div>'
+      );
+    }
+
+    function renderHorario(datos) {
+      var cal = datos.calendario;
+      var asigs = datos.asignaciones || [];
+      var emps = datos.empleados || [];
+      var resumen = datos.resumen || [];
+      var cierres = cal.cierres || [];
+      var festivos = cal.festivos || [];
+      var enlace = datos.enlace || {};
+      var esGeneral = enlace.tipo === 'Calendario General';
+
+      document.getElementById('subtituloCabecera').textContent =
+        fechaLegible(cal.desde) + ' — ' + fechaLegible(cal.hasta);
+
+      var fechas = generarFechas(cal.desde, cal.hasta);
+      var semanas = agruparEnSemanas(fechas);
+
+      var html = '<div class="tarjeta">';
+      html += '<h2>'+escaparHTML(cal.nombre)+'</h2>';
+      html += '<p class="periodo">'+fechaLegible(cal.desde)+' — '+fechaLegible(cal.hasta)+'</p>';
+
+      if (festivos.length > 0) {
+        html += '<div style="margin-bottom:14px; padding:8px 12px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:6px; font-size:12px; color:#0369a1;">' +
+          '<strong>🎉 Días festivos en este período (' + festivos.length + '):</strong> ' +
+          festivos.map(function(f) {
+            var fObj = typeof f === 'string' ? { fecha: f, nombre: 'Festivo' } : f;
+            return '<strong>' + fechaLegible(fObj.fecha) + '</strong> (' + escaparHTML(fObj.nombre || 'Festivo') + ')';
+          }).join(' · ') +
+          '</div>';
+      }
+
+      if (!esGeneral && emps.length>0) {
+        html += '<p style="margin-bottom:16px;font-size:13px;"><strong>'+escaparHTML(emps[0].name)+'</strong></p>';
+      }
+
+      if (esGeneral) {
+        html += '<p style="font-size:12px; color:var(--gris); margin-bottom:12px;">📋 Matriz de Horarios General (Vista Dirigente)</p>';
+        html += renderMatrizGeneralHTML(datos);
+      } else {
+
+      html += '<div class="semanas-lista">';
+      semanas.forEach(function(semFechas, idx) {
+        var primero = semFechas[0];
+        var ultimo  = semFechas[semFechas.length-1];
+
+        // Calcular horas extra de la semana
+        var totalTrabajadas = emps.reduce(function(s,emp){ return s+horasSemanaEmp(asigs,emp.id,semFechas); }, 0);
+        var totalContrato   = emps.reduce(function(s,emp){ return s+Number(emp.hours||0); }, 0);
+        var extraSemana     = round2(Math.max(0, totalTrabajadas-totalContrato));
+
+        html += '<div>';
+        html += '<button class="boton-semana" onclick="toggleSemana('+idx+')">';
+        html += '<span>'+nombreSemana(primero,ultimo)+'</span>';
+        html += '<span style="display:flex;align-items:center;gap:8px;">';
+        if (extraSemana>0) html += '<span class="horas-extra">+'+numero(extraSemana)+' h extra</span>';
+        html += '<span class="flecha">&#x203A;</span></span></button>';
+
+        html += '<div class="detalle-semana" id="det-'+idx+'">';
+        html += '<div style="overflow-x:auto;"><table class="tabla-dias"><thead><tr>';
+        html += '<th>D&#237;a</th><th>Turno</th><th>Entrada</th><th>Salida</th><th>Horas</th>';
+        html += '</tr></thead><tbody>';
+
+        semFechas.forEach(function(fecha) {
+          var esCierre = cierres.indexOf(fecha)>=0;
+          var festivoItem = festivos.find(function(f) { return (typeof f === 'string' ? f : f.fecha) === fecha; });
+          var esFestivo = Boolean(festivoItem);
+          var nombreFestivo = esFestivo ? (typeof festivoItem === 'string' ? 'Festivo' : (festivoItem.nombre || 'Festivo')) : '';
+          var dd = new Date(fecha+'T12:00:00');
+          var diaw = dd.getDay();
+          var diaNom = DIAS_SEMANA[diaw===0?6:diaw-1];
+          var diaFmt = dd.getDate()+' '+MESES[dd.getMonth()];
+          var badgeFestivo = esFestivo ? ' <span style="background:#e0f2fe; color:#0369a1; padding:2px 5px; border-radius:4px; font-size:10px; font-weight:bold;">🎉 '+escaparHTML(nombreFestivo)+'</span>' : '';
+
+          if (esCierre) {
+            html += '<tr class="dia-cierre"><td><span class="dia-nombre">'+diaNom+'</span>'+badgeFestivo+'<br><span class="dia-fecha">'+diaFmt+'</span></td>';
+            html += '<td colspan="4">&#128274; D&#237;a de cierre</td></tr>';
+            return;
+          }
+
+          var turnosDia = asigs.filter(function(a){ return a.date===fecha; });
+          if (!turnosDia.length) {
+            html += '<tr><td><span class="dia-nombre">'+diaNom+'</span>'+badgeFestivo+'<br><span class="dia-fecha">'+diaFmt+'</span></td>';
+            html += '<td colspan="4" class="sin-turno">Sin turno asignado</td></tr>';
+            return;
+          }
+
+          turnosDia.forEach(function(turno, tIdx) {
+            var emp = emps.find(function(e){ return e.id===turno.employeeId; });
+            var empNom = emp ? escaparHTML(emp.name) : '';
+            html += '<tr>';
+            if (tIdx===0) {
+              html += '<td rowspan="'+turnosDia.length+'"><span class="dia-nombre">'+diaNom+'</span>'+badgeFestivo+'<br><span class="dia-fecha">'+diaFmt+'</span></td>';
+            }
+            html += '<td><strong>'+escaparHTML(turno.shiftName)+'</strong>';
+            if (esGeneral && empNom) html += '<br><span style="font-size:11px;color:var(--gris);">'+empNom+'</span>';
+            html += '</td>';
+            html += '<td>'+escaparHTML(turno.start)+'</td>';
+            html += '<td>'+escaparHTML(turno.end)+'</td>';
+            html += '<td><strong>'+numero(turno.hours)+' h</strong></td>';
+            html += '</tr>';
+          });
+        });
+
+        html += '</tbody></table></div>';
+
+        var totalH = round2(emps.reduce(function(s,emp){ return s+horasSemanaEmp(asigs,emp.id,semFechas); },0));
+        html += '<div class="totales-semana">';
+        html += '<span class="total-chip">&#8987; Total semana: <strong>'+numero(totalH)+' h</strong></span>';
+        if (extraSemana>0) html += '<span class="total-chip extra">&#9889; Extra: +'+numero(extraSemana)+' h</span>';
+        html += '</div>';
+        html += '</div>'; // detalle
+        html += '</div>'; // wrapper
+      });
+
+      html += '</div>'; // semanas-lista
+      } // Fin else (no general)
+
+      // Resumen global
+      if (resumen.length>0) {
+        html += '<hr style="border:0;border-top:1px solid var(--borde);margin:20px 0;">';
+        html += '<h3 style="font-size:15px;margin-bottom:12px;color:var(--vino);">📊 Resumen de horas y saldos por empleado</h3>';
+        html += '<div class="resumen-global">';
+        resumen.forEach(function(r) {
+          var saldoPer = round2(r.saldoPeriodo || 0);
+          var saldoTot = round2(r.saldoTotalAcumulado || 0);
+          html += '<div class="resumen-empleado">';
+          html += '<h4>'+escaparHTML(r.employeeName)+'</h4>';
+          html += '<div class="rol">'+escaparHTML(r.role)+'</div>';
+          html += '<div class="linea"><span>Contrato:</span><span>'+numero(r.contractHours)+' h</span></div>';
+          html += '<div class="linea"><span>Trabajadas:</span><span>'+numero(r.workedHours)+' h</span></div>';
+          if (r.saldoHorasAnterior) {
+            html += '<div class="linea"><span>Saldo anterior:</span><span style="color:'+(r.saldoHorasAnterior>=0?'var(--verde)':'#d93025')+';">'+(r.saldoHorasAnterior>=0?'+':'')+numero(r.saldoHorasAnterior)+' h</span></div>';
+          }
+          html += '<div class="linea"><span>Saldo período:</span><span style="font-weight:bold;color:'+(saldoPer>=0?'var(--verde)':'#d93025')+';">'+(saldoPer>=0?'+':'')+numero(saldoPer)+' h</span></div>';
+          html += '<div class="linea"><span>Total extra/débito:</span><span class="extra-valor" style="color:'+(saldoTot>=0?'var(--verde)':'#d93025')+'; font-weight:bold;">'+(saldoTot>=0?'+':'')+numero(saldoTot)+' h</span></div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+
+      html += '</div>';
+      html += '<p style="text-align:center;font-size:11px;color:#bbb;margin-top:20px;">&#128274; Documento privado. No se puede imprimir ni descargar.</p>';
+
+      document.getElementById('contenidoPrincipal').innerHTML = html;
+    }
+
+    function renderCompensacion(datos) {
+      var c = datos.compensacion;
+      document.getElementById('subtituloCabecera').textContent = 'Recibo de compensación · ' + (c.employeeName || '');
+
+      var html = '<div class="tarjeta busta-paga">';
+      html += '<div class="busta-cabecera">';
+      html += '<div class="busta-empresa"><strong>Portal de Horarios</strong>Recibo de compensación por horas extra y festivas</div>';
+      html += '<div class="busta-num"><strong>Ref. ' + (c.id ? c.id.substring(0,8).toUpperCase() : '---') + '</strong>' + fechaLegible(c.createdAt) + '</div>';
+      html += '</div>';
+
+      html += '<div class="busta-empleado"><h3>' + escaparHTML(c.employeeName) + '</h3>';
+      html += '<div class="periodo">Período: ' + escaparHTML(c.periodo) + '</div></div>';
+
+      html += '<table class="busta-tabla"><tbody>';
+
+      var baseContrato = Number(c.contractHoursBase || c.contractHours || 0);
+      var diasBase = Number(c.giorniLavorativiBase || 6);
+      var oreBaseDiaria = Number(c.oreGiornaliereBase || (diasBase > 0 ? (baseContrato / diasBase) : 5));
+
+      html += '<tr><td>Horas de contrato base del período</td><td class="num">' + numero(baseContrato) + ' h</td></tr>';
+      html += '<tr><td>Semana laboral base del sector</td><td class="num">' + diasBase + ' días/semana</td></tr>';
+      html += '<tr><td>Jornada ordinaria base diaria (teórica)</td><td class="num">' + numero(oreBaseDiaria) + ' h/día</td></tr>';
+
+      if (c.festivosCount && c.festivosCount > 0) {
+        html += '<tr style="background:#f0f9ff;"><td>Días festivos computados en el período</td><td class="num" style="color:#0369a1; font-weight:bold;">🎉 ' + c.festivosCount + ' día' + (c.festivosCount > 1 ? 's' : '') + '</td></tr>';
+        html += '<tr style="background:#f0f9ff;"><td>Deducción horas por festivos (H. Nomina)</td><td class="num" style="color:var(--verde); font-weight:bold;">-' + numero(c.festivosDeduction) + ' h</td></tr>';
+        html += '<tr style="font-weight:600;"><td>Horas debidas del período (H_NOMINA)</td><td class="num" style="color:#0c4a6e;">' + numero(c.contractHours) + ' h</td></tr>';
+      } else {
+        html += '<tr style="font-weight:600;"><td>Horas debidas del período (H_NOMINA)</td><td class="num">' + numero(c.contractHours) + ' h</td></tr>';
+      }
+
+      html += '<tr><td>Horas efectivamente trabajadas</td><td class="num"><strong>' + numero(c.workedHours) + ' h</strong></td></tr>';
+
+      var saldoAnt = Number(c.saldoHorasAnterior || 0);
+      if (saldoAnt !== 0) {
+        html += '<tr><td>Saldo flotante período anterior</td><td class="num" style="color:' + (saldoAnt >= 0 ? 'var(--verde)' : 'var(--naranja)') + ';">' + (saldoAnt >= 0 ? '+' : '') + numero(saldoAnt) + ' h</td></tr>';
+      }
+
+      var hFestivas = Number(c.workedFestiveHours || 0);
+      var pFest = Number(c.pricePerFestiveHour !== undefined ? c.pricePerFestiveHour : 11.60);
+      var compFest = Number(c.compensoFestivo !== undefined ? c.compensoFestivo : (hFestivas * pFest));
+
+      var hExtraOrd = Number(c.finalExtraHours !== undefined ? c.finalExtraHours : (c.automaticExtraHours || 0));
+      var pNorm = Number(c.pricePerHour !== undefined ? c.pricePerHour : 8.50);
+      var compOrd = Number(c.compensoExtraOrdinario !== undefined ? c.compensoExtraOrdinario : (hExtraOrd * pNorm));
+
+      var adj = Number(c.manualAdjustment || 0);
+      if (adj !== 0) {
+        html += '<tr><td>Ajuste manual a horas ordinarias</td><td class="num" style="color:' + (adj >= 0 ? 'var(--verde)' : 'var(--naranja)') + ';">' + (adj >= 0 ? '+' : '') + numero(adj) + ' h</td></tr>';
+      }
+
+      html += '<tr style="background:#fbfbfb; font-weight:600; border-top:1px solid #e0d7c8;"><td colspan="2" style="padding-top:10px; color:var(--vino);">Desglose y retribución económica de horas:</td></tr>';
+
+      html += '<tr>' +
+        '<td>🎉 Horas festivas trabajadas (' + numero(hFestivas) + ' h × ' + euros(pFest) + '/h)' + '</td>' +
+        '<td class="num" style="color:#0369a1; font-weight:bold;">' + euros(compFest) + '</td>' +
+        '</tr>';
+
+      html += '<tr>' +
+        '<td>⚡ Horas extra ordinarias (' + numero(hExtraOrd) + ' h × ' + euros(pNorm) + '/h)' + '</td>' +
+        '<td class="num" style="color:var(--naranja); font-weight:bold;">' + euros(compOrd) + '</td>' +
+        '</tr>';
+
+      var saldoRestante = Number(c.saldoRestante !== undefined ? c.saldoRestante : ((c.saldoTotalAcumulado || 0) + adj - hExtraOrd));
+      if (saldoRestante !== 0) {
+        var esDebito = saldoRestante < 0;
+        html += '<tr style="background:' + (esDebito ? '#fff2f0' : '#f0fff4') + '; font-weight:bold;">' +
+          '<td style="color:' + (esDebito ? '#d93025' : '#2e7d32') + ';">Saldo a trasladar al siguiente período</td>' +
+          '<td class="num" style="color:' + (esDebito ? '#d93025' : '#2e7d32') + ';">' + (saldoRestante >= 0 ? '+' : '') + numero(saldoRestante) + ' h</td>' +
+          '</tr>';
+      }
+
+      html += '</tbody></table>';
+
+      if (saldoRestante < 0) {
+        html += '<div style="margin:14px 0; padding:10px 12px; background:#fff2f0; border:1px solid #f28b82; border-radius:8px; color:#d93025; font-size:12px; line-height:1.4;">' +
+          '<strong>⚠️ Débito de horas a recuperar:</strong> Este déficit de <strong>' + numero(Math.abs(saldoRestante)) + ' h</strong> se trasladará al siguiente período laboral.' +
+          '</div>';
+      }
+
+      html += '<div class="busta-importe"><div><div class="label">Total compensación extra a percibir</div></div><div class="valor">' + euros(c.totalAmount) + '</div></div>';
+
+      if (Array.isArray(c.desgloseSemanas) && c.desgloseSemanas.length > 0) {
+        html += '<div style="margin-top:22px; border-top:1px solid #e0d7c8; padding-top:16px;">' +
+          '<h4 style="color:var(--vino); margin-bottom:12px;">📊 Detalle Semanal de Trabajo (Lunes a Domingo)</h4>';
+
+        c.desgloseSemanas.forEach(function(sem) {
+          html += '<div style="margin-bottom:14px; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden; background:#fafafa; font-size:12px;">' +
+            '<div style="background:#f1f5f9; padding:8px 12px; font-weight:bold; color:#1e293b; display:flex; justify-content:space-between;">' +
+            '<span>Semana ' + sem.numeroSemana + ' (' + fechaLegible(sem.fechaInicio) + ' - ' + fechaLegible(sem.fechaFin) + ')</span>' +
+            '<span style="color:var(--vino);">' + euros(sem.totaleCompensoExtra) + '</span>' +
+            '</div>' +
+            '<div style="padding:10px 12px;">' +
+            '<table style="width:100%; border-collapse:collapse; margin-bottom:8px;">' +
+            '<thead><tr style="border-bottom:1px solid #ddd; color:var(--gris);"><th style="text-align:left; padding:4px;">Día</th><th style="text-align:center; padding:4px;">Festivo</th><th style="text-align:right; padding:4px;">Horas</th></tr></thead>' +
+            '<tbody>' +
+            (sem.giorni || []).map(function(g) {
+              return '<tr style="border-bottom:1px solid #eee;">' +
+                '<td style="padding:3px 4px;">' + escaparHTML(g.diaNombre || g.giorno || '') + ' (' + fechaLegible(g.fecha) + ')</td>' +
+                '<td style="text-align:center; padding:3px 4px;">' + (g.isFestivo ? '<span style="background:#e0f2fe; color:#0369a1; padding:1px 6px; border-radius:4px; font-weight:bold; font-size:10px;">🎉 SÍ</span>' : '<span style="color:#94a3b8;">NO</span>') + '</td>' +
+                '<td style="text-align:right; padding:3px 4px;"><strong>' + numero(g.oreLavorate) + ' h</strong></td>' +
+                '</tr>';
+            }).join('') +
+            '</tbody></table>' +
+            '<div style="font-size:11px; color:#475569; line-height:1.4;">' +
+            'H. Nomina: <strong>' + numero(sem.oreDovuteSettimana) + 'h</strong> | Lavorate: <strong>' + numero(sem.totaleOreLavorate) + 'h</strong> | Festivas: <strong>' + numero(sem.oreFestiveLavorate) + 'h</strong> | Extra Ord.: <strong>' + numero(sem.oreExtraOrdinarie) + 'h</strong>' +
+            '</div></div></div>';
+        });
+
+        html += '</div>';
+      }
+
+      if (c.justification && c.justification.trim()) {
+        html += '<div class="busta-justificacion"><strong>Nota / Justificación:</strong>' + escaparHTML(c.justification) + '</div>';
+      }
+
+      html += '<div class="busta-sello">';
+      html += '<p>Generado el ' + fechaLegible(c.createdAt) + ' &middot; Portal de Horarios y Compensación</p>';
+      html += '<p style="margin-top:4px;">Este documento es informativo. No constituye nómina oficial.</p>';
+      html += '<p style="margin-top:2px;">🔒 Documento privado para uso del trabajador y la administración.</p>';
+      html += '</div></div>';
+
+      document.getElementById('contenidoPrincipal').innerHTML = html;
+    }
+
+    function obtenerParametroUrl(nombre) {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        return (params.get(nombre) || '').trim();
+      } catch (e) {
+        return '';
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', function() {
+      var pagina = <?!= JSON.stringify(pagina) ?> || obtenerParametroUrl('page');
+      var token  = <?!= JSON.stringify(token) ?> || obtenerParametroUrl('token');
+
+      pagina = String(pagina || '').replace(/&quot;/g, '').replace(/^"|"$/g, '').trim();
+      token  = String(token || '').replace(/&quot;/g, '').replace(/^"|"$/g, '').trim();
+
+      if (typeof google === 'undefined' || !google.script || !google.script.run) {
+        document.getElementById('contenidoPrincipal').innerHTML =
+          '<div class="estado-error"><div class="icono-error">&#9888;&#65039;</div>' +
+          '<strong>Error de entorno</strong>' +
+          '<p style="margin-top:8px;font-size:13px;">Este enlace debe abrirse directamente desde la aplicaci&#243;n web de Google.</p></div>';
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(function(datos) {
+          if (!datos || !datos.ok) {
+            var motivo = datos && datos.motivo ? datos.motivo : 'Enlace no v&#225;lido o caducado.';
+            document.getElementById('contenidoPrincipal').innerHTML =
+              '<div class="estado-error"><div class="icono-error">&#128274;</div>' +
+              '<strong>Acceso no permitido</strong>' +
+              '<p style="margin-top:8px;font-size:13px;">'+escaparHTML(motivo)+'</p></div>';
+            return;
+          }
+          if (datos.tipo === 'horario') {
+            renderHorario(datos);
+          } else if (datos.tipo === 'compensacion') {
+            renderCompensacion(datos);
+          }
+        })
+        .withFailureHandler(function(err) {
+          var msg = err && err.message ? err.message : String(err);
+          document.getElementById('contenidoPrincipal').innerHTML =
+            '<div class="estado-error"><div class="icono-error">&#9888;&#65039;</div>' +
+            '<strong>Error al cargar los datos</strong>' +
+            '<p style="margin-top:8px;font-size:13px;">'+escaparHTML(msg)+'</p></div>';
+        })
+        .obtenerVistaPublica(pagina, token);
+    });
+  </script>
+</body>
+</html>
