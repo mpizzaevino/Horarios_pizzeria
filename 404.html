@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Redirigiendo...</title>
+  <script>
+    // GitHub Pages SPA redirect
+    var pathname = window.location.pathname;
+    if (pathname.indexOf('view') !== -1) {
+      window.location.replace('view.html' + window.location.search);
+    } else {
+      window.location.replace('index.html' + window.location.search);
+    }
+  </script>
+</head>
+<body>
+  <p>Redirigiendo a la aplicación...</p>
+</body>
+</html>
