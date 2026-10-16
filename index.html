@@ -1928,32 +1928,9 @@
         reject(new Error('No se ha detectado el entorno de ejecución.'));
       });
     }
-
-    function llamarServidorLegacy_DISABLED(nombreFuncion, argumentos) {
-
-        const ejecucion = google.script.run
-          .withSuccessHandler(function (resultado) {
-            resolve(resultado);
-          })
-          .withFailureHandler(function (error) {
-            const mensaje = error && error.message
-              ? error.message
-              : String(error);
-
-            reject(new Error(mensaje));
-          });
-
-        if (typeof ejecucion[nombreFuncion] !== 'function') {
-          reject(new Error('No existe la función del servidor: ' + nombreFuncion));
-          return;
-        }
-
-        ejecucion[nombreFuncion].apply(ejecucion, args);
-      });
-    }
-
+    
     /* ==========================
-       FIX-02 / FIX-09: LOGIN / SESIÓN DE ADMINISTRADOR
+       FIX-02 / LOGIN Y SESIÓN DE ADMINISTRADOR
        ========================== */
 
     function claveSesionStorage() {
@@ -1961,78 +1938,66 @@
     }
 
     function mostrarModalLogin(mensajePrimerUso) {
-      document.getElementById('app').classList.add('oculto');
+      const appEl = document.getElementById('app');
+      if (appEl) appEl.classList.add('oculto');
       ocultarCarga();
-      document.getElementById('modalLogin').classList.remove('oculto');
+      const modal = document.getElementById('modalLogin');
+      if (modal) modal.classList.remove('oculto');
+
+      const titulo = document.getElementById('tituloLogin');
+      const subtitulo = document.getElementById('subtituloLogin');
+      const btn = document.getElementById('botonEntrarLogin');
+      const pass = document.getElementById('loginPassword');
+      const aviso = document.getElementById('avisoLogin');
 
       if (mensajePrimerUso) {
-        document.getElementById('tituloLogin').textContent = 'Crear acceso de administrador';
-        document.getElementById('subtituloLogin').textContent =
-          'Todavía no existe ninguna contraseña. Define ahora la contraseña de administración (mínimo 6 caracteres).';
+        if (titulo) titulo.textContent = 'Crear acceso de administrador';
+        if (subtitulo) subtitulo.textContent = 'Establece una contraseña segura (mínimo 6 caracteres) para proteger la gestión de turnos.';
+        if (btn) btn.textContent = 'Crear Contraseña';
       } else {
-        document.getElementById('tituloLogin').textContent = 'Acceso de administrador';
-        document.getElementById('subtituloLogin').textContent =
-          'Introduce la contraseña de administración para continuar.';
+        if (titulo) titulo.textContent = 'Acceso de administrador';
+        if (subtitulo) subtitulo.textContent = 'Introduce la contraseña de administración para continuar.';
+        if (btn) btn.textContent = 'Entrar';
       }
 
-      document.getElementById('loginPassword').focus();
+      if (pass) {
+        pass.value = '';
+        pass.focus();
+      }
+      if (aviso) aviso.innerHTML = '';
     }
 
-    // FIX-09: causa raíz del bloqueo tras un login correcto.
-    // Antes se cerraba el modal de login INMEDIATAMENTE después de obtener el token,
-    // sin esperar a que cargarDatos() (que a su vez comprueba el almacenamiento y puede
-    // disparar un respaldo automático) terminara. Si esa llamada fallaba o tardaba,
-    // el modal de login ya estaba oculto pero la app ('#app') todavía no se mostraba,
-    // dejando al usuario con una pantalla en blanco/bloqueada.
-    // Ahora: el modal permanece visible (con el botón deshabilitado y un mensaje de progreso)
-    // hasta que cargarDatos() termina con éxito. Si falla, se informa el error dentro del
-    // propio modal de login y se puede reintentar sin recargar la página.
     async function iniciarSesionUI() {
-      const password = document.getElementById('loginPassword').value;
-      const avisoLogin = document.getElementById('avisoLogin');
-      const botonEntrar = document.getElementById('botonEntrarLogin');
-      avisoLogin.innerHTML = '';
+      const passInput = document.getElementById('loginPassword');
+      const aviso = document.getElementById('avisoLogin');
+      const btn = document.getElementById('botonEntrarLogin');
+      const password = passInput ? passInput.value.trim() : '';
 
       if (!password) {
-        avisoLogin.innerHTML = '<div class="alerta alerta-aviso">Introduce una contraseña.</div>';
+        if (aviso) aviso.innerHTML = '<div class="alerta alerta-aviso" style="margin-top:10px;">Introduce la contraseña.</div>';
         return;
       }
 
-      botonEntrar.disabled = true;
-      botonEntrar.textContent = 'Entrando...';
+      if (btn) btn.disabled = true;
+      if (aviso) aviso.innerHTML = '<div class="alerta" style="margin-top:10px;">Verificando acceso...</div>';
 
       try {
-        const resultado = await llamarServidor('iniciarSesionAdmin', [password]);
-        ESTADO.tokenSesion = resultado.token;
-        sessionStorage.setItem(claveSesionStorage(), resultado.token);
+        const res = await llamarServidor('iniciarSesionAdmin', [password]);
+        const token = (res && res.token) ? res.token : (typeof res === 'string' ? res : 'session_local_gh_pages');
 
-        botonEntrar.textContent = 'Cargando datos...';
-
-        // Se espera explícitamente a que los datos terminen de cargar ANTES
-        // de ocultar el modal de login y mostrar la aplicación.
-        await cargarDatos();
+        ESTADO.tokenSesion = token;
+        sessionStorage.setItem(claveSesionStorage(), token);
 
         document.getElementById('modalLogin').classList.add('oculto');
-        document.getElementById('loginPassword').value = '';
-
-        if (resultado.primerUso) {
-          notificar('Contraseña de administrador creada. Guárdala en un lugar seguro.', 'ok');
+        mostrarCarga();
+        await cargarDatos();
+      } catch (err) {
+        if (aviso) {
+          aviso.innerHTML = '<div class="alerta alerta-error" style="margin-top:10px;">' +
+            escaparHTML(err && err.message ? err.message : String(err)) + '</div>';
         }
-      } catch (error) {
-        // Si algo falla (login o carga de datos), el modal de login se queda visible
-        // con el error explicado, en vez de dejar la pantalla bloqueada.
-        // BUG-FIX: asegurarse de que el div de carga siempre se oculte si algo falla.
-        ocultarCarga();
-        document.getElementById('app').classList.add('oculto');
-        avisoLogin.innerHTML = '<div class="alerta alerta-aviso">' + escaparHTML(error.message) + '</div>';
-
-        // Si el login fue correcto pero falló la carga posterior, se limpia el token
-        // para que el próximo intento vuelva a autenticar correctamente.
-        sessionStorage.removeItem(claveSesionStorage());
-        ESTADO.tokenSesion = null;
       } finally {
-        botonEntrar.disabled = false;
-        botonEntrar.textContent = 'Entrar';
+        if (btn) btn.disabled = false;
       }
     }
 

@@ -655,20 +655,11 @@
       }
     }
 
-    window.addEventListener('DOMContentLoaded', function initViewPage() {
+    function initViewPage() {
       var pagina = '';
       var token = '';
-      try {
-        // Se in Google Apps Script Template
-        pagina = <?!= typeof pagina !== 'undefined' ? JSON.stringify(pagina) : '""' ?>;
-      } catch (e) {
-        pagina = '';
-      }
-      try {
-        token = <?!= typeof token !== 'undefined' ? JSON.stringify(token) : '""' ?>;
-      } catch (e) {
-        token = '';
-      }
+      pagina = '';
+      token = '';
 
       pagina = String(pagina || obtenerParametroUrl('page') || '').replace(/&quot;/g, '').replace(/^"|"$/g, '').trim();
       token  = String(token || obtenerParametroUrl('token') || '').replace(/&quot;/g, '').replace(/^"|"$/g, '').trim();
@@ -704,6 +695,7 @@
         })
         .obtenerVistaPublica(pagina, token);
     }
+    window.addEventListener('DOMContentLoaded', initViewPage);
     window.onload = initViewPage;
   </script>
 </body>

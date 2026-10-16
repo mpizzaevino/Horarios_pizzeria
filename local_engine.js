@@ -775,12 +775,30 @@
       case 'existeContrasenaAdmin':
         return Boolean(localStorage.getItem(STORAGE_KEYS.ADMIN_PASS));
 
-      case 'iniciarSesionAdmin':
-        return 'session_local_gh_pages';
+      case 'iniciarSesionAdmin': {
+        const passIntroducida = String((args && args[0]) || '').trim();
+        const passGuardada = localStorage.getItem(STORAGE_KEYS.ADMIN_PASS);
+        if (!passGuardada) {
+          if (passIntroducida.length < 6) {
+            throw new Error('Configura una contraseña de al menos 6 caracteres.');
+          }
+          localStorage.setItem(STORAGE_KEYS.ADMIN_PASS, passIntroducida);
+          return { token: 'session_local_gh_pages', primerUso: true };
+        }
+        if (passIntroducida !== passGuardada) {
+          throw new Error('Contraseña de administrador incorrecta.');
+        }
+        return { token: 'session_local_gh_pages' };
+      }
 
-      case 'configurarContrasenaAdmin':
-        localStorage.setItem(STORAGE_KEYS.ADMIN_PASS, args[0]);
-        return 'session_local_gh_pages';
+      case 'configurarContrasenaAdmin': {
+        const passNueva = String((args && (args[1] || args[0])) || '').trim();
+        if (passNueva.length < 6) {
+          throw new Error('La contraseña debe tener al menos 6 caracteres.');
+        }
+        localStorage.setItem(STORAGE_KEYS.ADMIN_PASS, passNueva);
+        return { token: 'session_local_gh_pages', ok: true };
+      }
 
       case 'cerrarSesionAdmin':
         return { ok: true };
