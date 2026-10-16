@@ -1567,7 +1567,7 @@ function calcularSemanaHosteleria(parametri) {
   // Passo 1: Determinare la Giornata Ordinaria Teorica
   const Ore_Giornaliere_Base = redondear(Contratto_Ore_Settimana / Giorni_Lavorativi_Base);
 
-  // Passo 2: Gestione dei Giorni Festivi Infrasettimanali e Rideterminazione dell'Obiettivo (Ore Nomina)
+  // Passo 2: Tracciamento dei Giorni Festivi (solo per identificare le ore da retribuire a tariffa festiva)
   const giorni = Array.isArray(parametri.giorni) ? parametri.giorni : [];
   let Giorni_Festivi_Conteggiati = 0;
   let Totale_Ore_Lavorate = 0;
@@ -1586,12 +1586,15 @@ function calcularSemanaHosteleria(parametri) {
   Totale_Ore_Lavorate = redondear(Totale_Ore_Lavorate);
   Ore_Festive_Lavorate = redondear(Ore_Festive_Lavorate);
 
-  const Ore_Dovute_Settimana = redondear(Math.max(0, Contratto_Ore_Settimana - (Giorni_Festivi_Conteggiati * Ore_Giornaliere_Base)));
+// NUOVA REGOLA (2024): il contratto settimanale è FISSO, senza deduzioni per festivi.
+  // Le ore festive lavorate sono sempre retribuite a tariffa festiva.
+  // Le ore extra ordinarie = max(0, (lavorato - contratto_fisso) - ore_festive)
+  const Ore_Dovute_Settimana = Contratto_Ore_Settimana; // FISSO – non ridotto per festivi
 
-  // Passo 3: Conteggio delle Ore Effettivamente Lavorate e Individuazione del Saldo Extra Totale
-  const Ore_Extra_Totali = redondear(Totale_Ore_Lavorate - Ore_Dovute_Settimana);
+  // Passo 3: Saldo Extra Totale rispetto al contratto fisso
+  const Ore_Extra_Totali = redondear(Math.max(0, Totale_Ore_Lavorate - Ore_Dovute_Settimana));
 
-  // Passo 4: Disaccoppiamento e Ripartizione delle Ore Extra (Ordinarie vs Festive)
+  // Passo 4: Ripartizione Extra (Ordinarie vs Festive)
   const Ore_Extra_Ordinarie = redondear(Math.max(0, Ore_Extra_Totali - Ore_Festive_Lavorate));
 
   // Passo 5: Calcolo del Compenso Economico Finale
@@ -1640,15 +1643,18 @@ function ejecutarUnitTestCalcoloHosteleria() {
   };
 
   const res = calcularSemanaHosteleria(testInput);
+  // NUOVA REGOLA: contratto fisso 30h, nessuna riduzione per festivi
+  // oreDovute=30, extraTot=max(0,32.5-30)=2.5, oreFest=5, extraOrd=max(0,2.5-5)=0
+  // comp = 0×8.50 + 5×11.60 = 58.00
   return {
     ok: (
       res.oreGiornaliereBase === 5.0 &&
       res.giorniFestiviConteggiati === 1 &&
-      res.oreDovuteSettimana === 25.0 &&
-      res.oreExtraTotali === 7.5 &&
+      res.oreDovuteSettimana === 30.0 &&
+      res.oreExtraTotali === 2.5 &&
       res.oreFestiveLavorate === 5.0 &&
-      res.oreExtraOrdinarie === 2.5 &&
-      Math.abs(res.totaleCompensoExtra - 79.25) < 0.001
+      res.oreExtraOrdinarie === 0.0 &&
+      Math.abs(res.totaleCompensoExtra - 58.0) < 0.001
     ),
     dettagli: res
   };
@@ -1726,8 +1732,8 @@ function calcularResumenCalendario(calendarioId) {
 
       totContractBase += contratoSem;
       totFestivosCount += resSem.giorniFestiviConteggiati;
-      totDeduccionFestivos += (resSem.giorniFestiviConteggiati * resSem.oreGiornaliereBase);
-      totContractHours += resSem.oreDovuteSettimana;
+      totDeduccionFestivos += 0; // Non più applicata: il contratto è FISSO
+      totContractHours += contratoSem; // Sempre il contratto base, non ridotto per festivi
       totWorkedHours += resSem.totaleOreLavorate;
       totWorkedFestiveHours += resSem.oreFestiveLavorate;
       totExtraHoursOrd += resSem.oreExtraOrdinarie;

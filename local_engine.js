@@ -299,8 +299,11 @@
 
     totLav = redondearLocal(totLav);
     oreFest = redondearLocal(oreFest);
-    const oreDovute = redondearLocal(Math.max(0, cOre - (gFest * oreBase)));
-    const extraTot = redondearLocal(totLav - oreDovute);
+    // NUOVA REGOLA: il contratto settimanale è FISSO, nessuna deduzione per festivi.
+    // Le ore festive lavorate vengono sempre retribuite a tariffa festiva.
+    // Le ore extra ordinarie = max(0, (lavorato - contratto) - ore_festive)
+    const oreDovute = cOre; // FISSO - non ridotto per i festivi
+    const extraTot = redondearLocal(Math.max(0, totLav - oreDovute));
     const extraOrd = redondearLocal(Math.max(0, extraTot - oreFest));
     const compOrd = redondear2DecLocal(extraOrd * tNorm);
     const compFest = redondear2DecLocal(oreFest * tFest);
@@ -389,8 +392,8 @@
 
         totContractBase += contratoSem;
         totFestCount += resSem.giorniFestiviConteggiati;
-        totDeduccionFest += (resSem.giorniFestiviConteggiati * resSem.oreGiornaliereBase);
-        totContractHours += resSem.oreDovuteSettimana;
+        totDeduccionFest += 0; // Non più applicata: il contratto è FISSO
+        totContractHours += contratoSem; // Sempre il contratto base, non ridotto per festivi
         totWorked += resSem.totaleOreLavorate;
         totFestWorked += resSem.oreFestiveLavorate;
         totExtraOrd += resSem.oreExtraOrdinarie;

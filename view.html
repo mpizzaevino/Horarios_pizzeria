@@ -692,12 +692,12 @@
       html += '<tr><td>Semana laboral base del sector</td><td class="num">' + diasBase + ' días/semana</td></tr>';
       html += '<tr><td>Jornada ordinaria base diaria (teórica)</td><td class="num">' + numero(oreBaseDiaria) + ' h/día</td></tr>';
 
+      // NUOVA REGOLA: nómina fissa, festivi retribuiti separatamente
       if (c.festivosCount && c.festivosCount > 0) {
-        html += '<tr style="background:#f0f9ff;"><td>Días festivos computados en el período</td><td class="num" style="color:#0369a1; font-weight:bold;">🎉 ' + c.festivosCount + ' día' + (c.festivosCount > 1 ? 's' : '') + '</td></tr>';
-        html += '<tr style="background:#f0f9ff;"><td>Deducción horas por festivos (H. Nomina)</td><td class="num" style="color:var(--verde); font-weight:bold;">-' + numero(c.festivosDeduction) + ' h</td></tr>';
-        html += '<tr style="font-weight:600;"><td>Horas debidas del período (H_NOMINA)</td><td class="num" style="color:#0c4a6e;">' + numero(c.contractHours) + ' h</td></tr>';
-      } else {
-        html += '<tr style="font-weight:600;"><td>Horas debidas del período (H_NOMINA)</td><td class="num">' + numero(c.contractHours) + ' h</td></tr>';
+        html += '<tr style="background:#f0f9ff;"><td>Días festivos trabajados en el período</td><td class="num" style="color:#0369a1; font-weight:bold;">🎉 ' + c.festivosCount + ' día' + (c.festivosCount > 1 ? 's' : '') + ' → retribuidos a tarifa festiva</td></tr>';
+      }
+      html += '<tr style="font-weight:600;"><td>Horas de Nómina del período <span style="background:#dcfce7; color:#166534; font-size:10px; padding:1px 5px; border-radius:3px; margin-left:4px;">FIJA</span></td><td class="num" style="color:#0c4a6e;">' + numero(c.contractHours) + ' h</td></tr>';
+      {
       var saldoAntRec = Number(c.saldoHorasAnterior || 0);
       if (saldoAntRec > 0) {
         html += '<tr style="background:#fff7ed; color:#c2410c;"><td>+ Horas pendientes a compensar de período anterior</td><td class="num" style="font-weight:bold;">+' + numero(saldoAntRec) + ' h</td></tr>';
