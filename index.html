@@ -1885,6 +1885,11 @@
       }, 4500);
     }
 
+    function mostrarCarga() {
+      const carga = document.getElementById('cargando');
+      if (carga) carga.classList.remove('oculto');
+    }
+
     function ocultarCarga() {
       const carga = document.getElementById('cargando');
       if (carga) carga.classList.add('oculto');
@@ -1998,8 +2003,14 @@
 
         document.getElementById('modalLogin').classList.add('oculto');
         mostrarCarga();
+
         await cargarDatos();
+
+        document.getElementById('app').classList.remove('oculto');
+        ocultarCarga();
       } catch (err) {
+        document.getElementById('modalLogin').classList.remove('oculto');
+        ocultarCarga();
         if (aviso) {
           aviso.innerHTML = '<div class="alerta alerta-error" style="margin-top:10px;">' +
             escaparHTML(err && err.message ? err.message : String(err)) + '</div>';
@@ -4837,17 +4848,24 @@
           '<span><strong>Días base:</strong> ' + (datos.diasLaborablesSemana || 6) + ' d/sem</span>' +
           badgeFestivosResumen +
           '</div>' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; margin-top:8px; flex-wrap:wrap; gap:8px;">' +
+          '  <div id="resumenContadorCompensos" style="font-size:13px; font-weight:600; display:flex; gap:12px; align-items:center;"></div>' +
+          '  <button type="button" class="boton boton-principal" onclick="consolidarSaldosCalendarioUI()" style="background:#0f766e; border-color:#0f766e; font-weight:bold; box-shadow:0 2px 4px rgba(15,118,110,0.25);">' +
+          '    💾 Consolidar y registrar todos los saldos en el Historial' +
+          '  </button>' +
+          '</div>' +
           '<div class="tabla-contenedor">' +
           '<table>' +
           '<thead><tr>' +
           '<th>Empleado</th>' +
-          '<th>H. Nomina (Dovute)</th>' +
+          '<th>H. Nómina Base</th>' +
+          '<th>Saldo Anterior (Débito)</th>' +
+          '<th>Nómina Efectiva</th>' +
           '<th>Trabajadas</th>' +
           '<th>Festivas</th>' +
           '<th>Extra Ord.</th>' +
-          '<th>Saldo Ant.</th>' +
           '<th>Saldo Período</th>' +
-          '<th>Acumulado</th>' +
+          '<th>Nuevo Saldo Acumulado</th>' +
           '<th>Ajuste manual</th>' +
           '<th>Total Compenso</th>' +
           '<th>Acciones</th>' +
@@ -4855,6 +4873,7 @@
           '<tbody>' +
           datos.empleados.map(function (empleado) {
             const saldoAnt = Number(empleado.saldoHorasAnterior || 0);
+            const contractHoursEfectivas = Number(empleado.contractHoursEfectivas || Math.max(0, Number(empleado.contractHours || 0) + saldoAnt));
             const saldoPer = Number(empleado.saldoPeriodo || 0);
             const saldoTot = Number(empleado.saldoTotalAcumulado || 0);
             const saldoTipo = saldoPer > 0.01 ? 'extra' : (saldoPer < -0.01 ? 'deficit' : 'ok');
@@ -4871,26 +4890,29 @@
               '</td>' +
               '<td><strong>' + numero(empleado.contractHours) + ' h</strong>' +
               (empleado.festivosCount > 0
-                ? ('<br><span style="font-size:10px; color:#0369a1;" title="Base ' + numero(empleado.contractHoursBase) + 'h - deducción de ' + numero(empleado.festivosDeduction) + 'h por ' + empleado.festivosCount + ' festivo(s) (base ' + empleado.giorniLavorativiBase + ' gg)">Base ' + numero(empleado.contractHoursBase) + 'h - ' + numero(empleado.festivosDeduction) + 'h fest.</span>')
+                ? ('<br><span style="font-size:10px; color:#0369a1;" title="Base ' + numero(empleado.contractHoursBase) + 'h - deducción de ' + numero(empleado.festivosDeduction) + 'h por ' + empleado.festivosCount + ' festivo(s)">Base ' + numero(empleado.contractHoursBase) + 'h - ' + numero(empleado.festivosDeduction) + 'h fest.</span>')
                 : ('<br><span class="texto-gris" style="font-size:10px;">Base ' + numero(empleado.contractHoursBase) + 'h</span>')) +
               '</td>' +
-              '<td>' + numero(empleado.workedHours) + ' h</td>' +
+              '<td>' +
+              '<span style="font-weight:bold; color:' + (saldoAnt > 0 ? '#b91c1c' : '#15803d') + ';">' + (saldoAnt > 0 ? '+' : '') + numero(saldoAnt) + ' h</span>' +
+              ' <button type="button" class="boton boton-secundario boton-pequeno" style="padding:2px 5px; font-size:10px; margin-left:3px;" onclick="ajustarSaldoEmpleadoUI(\'' + empleado.employeeId + '\',' + saldoAnt + ')" title="Modificar saldo flotante">✏️</button>' +
+              (saldoAnt > 0 ? '<br><span style="font-size:10px; color:#b91c1c; font-weight:600;">(a compensar)</span>' : '') +
+              '</td>' +
+              '<td><strong style="color:var(--vino); font-size:13px;">' + numero(contractHoursEfectivas) + ' h</strong></td>' +
+              '<td><strong>' + numero(empleado.workedHours) + ' h</strong></td>' +
               '<td>' + (festTrab > 0 ? ('<span style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:bold;">🎉 ' + numero(festTrab) + ' h</span>') : '<span class="texto-gris">0 h</span>') + '</td>' +
               '<td>' + (extraOrd > 0 ? ('<span style="color:#a85512; font-weight:bold;">+' + numero(extraOrd) + ' h</span>') : '<span class="texto-gris">0 h</span>') + '</td>' +
-              '<td>' +
-              '<span style="font-weight:bold; color:' + (saldoAnt >= 0 ? '#13744a' : '#a85512') + ';">' + (saldoAnt >= 0 ? '+' : '') + numero(saldoAnt) + ' h</span>' +
-              ' <button type="button" class="boton boton-secundario boton-pequeno" style="padding:2px 5px; font-size:10px; margin-left:3px;" onclick="ajustarSaldoEmpleadoUI(\'' + empleado.employeeId + '\',' + saldoAnt + ')" title="Modificar saldo flotante">✏️</button>' +
-              '</td>' +
-              '<td style="color:' + (saldoPer >= 0 ? '#13744a' : '#a85512') + '; font-weight:600;">' + (saldoPer >= 0 ? '+' : '') + numero(saldoPer) + ' h</td>' +
-              '<td style="color:' + (saldoTot > 0 ? '#a65000' : (saldoTot < 0 ? '#a85512' : '#6b7280')) + '; font-weight:bold;">' + (saldoTot >= 0 ? '+' : '') + numero(saldoTot) + ' h</td>' +
-              '<td><input id="ajuste-' + empleado.employeeId + '" type="number" step="0.5" value="0" style="width:70px;" oninput="actualizarFilaCompenso(\'' + empleado.employeeId + '\',' + extraOrd + ',' + festTrab + ')"></td>' +
+              '<td style="color:' + (saldoPer < 0 ? '#b91c1c' : '#15803d') + '; font-weight:600;">' + (saldoPer >= 0 ? '+' : '') + numero(saldoPer) + ' h</td>' +
+              '<td style="color:' + (saldoTot > 0 ? '#b91c1c' : '#15803d') + '; font-weight:bold;">' + (saldoTot > 0 ? ('⚠️ +' + numero(saldoTot) + ' h (débito)') : '✅ 0 h') + '</td>' +
+              '<td><input id="ajuste-' + empleado.employeeId + '" type="number" step="0.5" value="0" style="width:65px;" oninput="actualizarFilaCompenso(\'' + empleado.employeeId + '\',' + extraOrd + ',' + festTrab + ')"></td>' +
               '<td id="importe-box-' + empleado.employeeId + '">' +
               '<strong style="font-size:14px; color:#13744a;">' + euros(totCompenso) + '</strong><br>' +
               '<span class="texto-gris" style="font-size:10px;">' + numero(extraOrd) + 'h ord + ' + numero(festTrab) + 'h fest</span>' +
               '</td>' +
               '<td class="acciones" style="display:flex; gap:4px; flex-wrap:wrap;">' +
-              '<button type="button" class="boton boton-secundario boton-pequeno" style="padding:4px 8px; font-size:11px;" onclick="mostrarDesgloseSemanalUI(\'' + empleado.employeeId + '\')">📊 Desglose</button>' +
-              '<button type="button" class="boton boton-principal boton-pequeno" style="padding:4px 8px; font-size:11px;" onclick="generarReciboUI(\'' + empleado.employeeId + '\')">Generar recibo</button>' +
+              '<button type="button" class="boton boton-secundario boton-pequeno" style="padding:4px 7px; font-size:11px;" onclick="mostrarDesgloseSemanalUI(\'' + empleado.employeeId + '\')">📊 Desglose</button>' +
+              '<button type="button" class="boton boton-secundario boton-pequeno" style="padding:4px 7px; font-size:11px; color:#0f766e; border-color:#0f766e;" onclick="registrarSaldoEmpleadoCalendarioUI(\'' + empleado.employeeId + '\')" title="Registrar el saldo de este empleado en el Historial">📌 Registrar saldo</button>' +
+              '<button type="button" class="boton boton-principal boton-pequeno" style="padding:4px 7px; font-size:11px;" onclick="generarReciboUI(\'' + empleado.employeeId + '\')">Generar recibo</button>' +
               '</td>' +
               '</tr>'
             );
@@ -4977,8 +4999,51 @@
       }
     }
 
+    async function consolidarSaldosCalendarioUI() {
+      const calId = document.getElementById('selectCalendarioCompenso').value;
+      if (!calId) {
+        notificar('Selecciona un calendario primero.', 'aviso');
+        return;
+      }
+      if (!confirm('¿Deseas consolidar los saldos de horas de todos los empleados para este período? Los déficits/deudas de horas se registrarán en el Historial de saldos y se sumarán a la nómina del próximo período.')) {
+        return;
+      }
+      try {
+        mostrarCarga();
+        const res = await llamarServidor('consolidarSaldosCalendario', [ESTADO.tokenSesion, calId]);
+        await cargarDatos();
+        await cargarResumenCompenso();
+        await cargarHistorialSaldosUI();
+        ocultarCarga();
+        notificar('✅ Saldos del período consolidados y registrados en el Historial de saldos.', 'ok');
+      } catch (err) {
+        ocultarCarga();
+        notificar(err.message, 'error');
+      }
+    }
+
+    async function registrarSaldoEmpleadoCalendarioUI(employeeId) {
+      const calId = document.getElementById('selectCalendarioCompenso').value;
+      if (!calId) {
+        notificar('Selecciona un calendario primero.', 'aviso');
+        return;
+      }
+      try {
+        mostrarCarga();
+        await llamarServidor('consolidarSaldosCalendario', [ESTADO.tokenSesion, calId, employeeId]);
+        await cargarDatos();
+        await cargarResumenCompenso();
+        await cargarHistorialSaldosUI();
+        ocultarCarga();
+        notificar('✅ Saldo del empleado registrado en el Historial de saldos.', 'ok');
+      } catch (err) {
+        ocultarCarga();
+        notificar(err.message, 'error');
+      }
+    }
+
     async function ajustarSaldoEmpleadoUI(employeeId, saldoActual) {
-      const nuevoSaldoTexto = prompt('Ajustar saldo flotante de horas del empleado (positivo para crédito, negativo para déficit, 0 para reiniciar):', saldoActual);
+      const nuevoSaldoTexto = prompt('Ajustar saldo de horas del empleado (número positivo para deuda/débito a recuperar el próximo mes, 0 para al día):', saldoActual);
       if (nuevoSaldoTexto === null) return;
 
       const nuevoSaldo = Number(nuevoSaldoTexto);
@@ -4991,7 +5056,8 @@
         await llamarServidor('guardarSaldoEmpleado', [ESTADO.tokenSesion, employeeId, nuevoSaldo]);
         await cargarDatos();
         await cargarResumenCompenso();
-        notificar('Saldo flotante del empleado actualizado.', 'ok');
+        await cargarHistorialSaldosUI();
+        notificar('Saldo de horas del empleado actualizado y registrado en el historial.', 'ok');
       } catch (error) {
         notificar(error.message, 'error');
       }
@@ -5158,13 +5224,18 @@
           } else {
             contResumen.innerHTML = empleados.map(function(e) {
               const saldo = Number(e.saldoHorasAnterior || 0);
-              return '<div style="background:white; border:1px solid #e0d7c8; padding:12px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">' +
+              const colorSaldo = saldo > 0 ? '#b91c1c' : (saldo < 0 ? '#1d4ed8' : '#15803d');
+              const borderColor = saldo > 0 ? '#fca5a5' : (saldo < 0 ? '#bfdbfe' : '#bbf7d0');
+              const bgColor = saldo > 0 ? '#fef2f2' : (saldo < 0 ? '#eff6ff' : '#f0fdf4');
+              return '<div style="background:' + bgColor + '; border:1px solid ' + borderColor + '; border-left:4px solid ' + colorSaldo + '; padding:14px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">' +
                 '<div style="font-weight:bold; font-size:14px; color:var(--vino);">' + textoSeguro(e.name) + '</div>' +
                 '<div style="font-size:11px; color:#7f8c8d;">Contrato: ' + numero(e.hours || 0) + ' h/sem</div>' +
-                '<div style="margin-top:6px; font-weight:bold; font-size:13px; color:' + (saldo >= 0 ? '#27ae60' : '#d93025') + ';">' +
-                'Saldo acumulado: ' + (saldo >= 0 ? '+' : '') + numero(saldo) + ' h' +
+                '<div style="margin-top:6px; font-weight:bold; font-size:13px; color:' + colorSaldo + ';">' +
+                'Saldo acumulado: ' + (saldo > 0 ? '+' : '') + numero(saldo) + ' h' +
                 '</div>' +
-                '<div style="font-size:10px; color:#95a5a6; margin-top:2px;">' + (saldo < 0 ? '⚠️ Débito a recuperar en próximo calendario' : (saldo > 0 ? '⚡ Crédito a favor' : 'Al día')) + '</div>' +
+                '<div style="font-size:11px; margin-top:3px; font-weight:600; color:' + colorSaldo + ';">' +
+                (saldo > 0 ? '⚠️ Débito: ' + numero(saldo) + ' h a compensar (se sumarán a nómina próx. mes)' : (saldo < 0 ? '⚡ Crédito: ' + numero(Math.abs(saldo)) + ' h a favor' : '✅ Al día (sin horas pendientes)')) +
+                '</div>' +
                 '</div>';
             }).join('');
           }
@@ -5172,21 +5243,25 @@
 
         if (tabla) {
           if (!historial.length) {
-            tabla.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px; color:#999;">No hay movimientos de saldo registrados aún.</td></tr>';
+            tabla.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px; color:#999;">No hay movimientos de saldo registrados aún. Usa el botón "💾 Consolidar y registrar todos los saldos" en Compensos o genera recibos para guardar saldos.</td></tr>';
           } else {
             tabla.innerHTML = historial.slice().reverse().map(function(h) {
               const res = Number(h.saldoResultante || 0);
-              const tipoBadge = res < 0
-                ? '<span style="background:#fff2f0; color:#d93025; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:11px;">🔴 Débito (-h)</span>'
-                : (res > 0 ? '<span style="background:#f0fff4; color:#27ae60; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:11px;">🟢 Crédito (+h)</span>' : '<span style="background:#eee; color:#666; padding:2px 6px; border-radius:4px; font-size:11px;">⚪ 0h</span>');
+              const tipoBadge = res > 0 || h.tipo === 'DEFICIT'
+                ? '<span style="background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; padding:2px 8px; border-radius:4px; font-weight:bold; font-size:11px;">🔴 Débito (+' + numero(res) + ' h a nómina)</span>'
+                : (res < 0 || h.tipo === 'CREDITO'
+                  ? '<span style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:2px 8px; border-radius:4px; font-weight:bold; font-size:11px;">🔵 Crédito (' + numero(res) + ' h)</span>'
+                  : '<span style="background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; padding:2px 8px; border-radius:4px; font-weight:bold; font-size:11px;">🟢 Al día (0 h)</span>');
+
+              const colorRes = res > 0 ? '#b91c1c' : (res < 0 ? '#1d4ed8' : '#15803d');
 
               return '<tr>' +
                 '<td>' + fechaLegible(h.createdAt) + '</td>' +
                 '<td><strong>' + textoSeguro(h.employeeName) + '</strong></td>' +
                 '<td>' + textoSeguro(h.periodo || h.calendarName || '—') + '</td>' +
-                '<td>' + numero(h.contractHours) + ' h</td>' +
+                '<td>' + numero(h.contractHoursEfectivas || h.contractHours) + ' h</td>' +
                 '<td>' + numero(h.workedHours) + ' h</td>' +
-                '<td style="font-weight:bold; color:' + (res >= 0 ? '#27ae60' : '#d93025') + ';">' + (res >= 0 ? '+' : '') + numero(res) + ' h</td>' +
+                '<td style="font-weight:bold; color:' + colorRes + ';">' + (res > 0 ? '+' : '') + numero(res) + ' h</td>' +
                 '<td>' + tipoBadge + '</td>' +
                 '<td>' + textoSeguro(h.origen || '—') + '</td>' +
                 '<td><button class="boton boton-secundario boton-pequeno" style="color:#c0392b;" onclick="eliminarRegistroSaldoUI(\'' + h.id + '\')">🗑️</button></td>' +
@@ -5198,7 +5273,6 @@
         notificar(err.message, 'error');
       }
     }
-
     function abrirModalAjusteSaldoUI() {
       const select = document.getElementById('ajusteSaldoEmpleadoId');
       if (select) {

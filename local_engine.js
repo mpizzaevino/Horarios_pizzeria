@@ -408,11 +408,29 @@
       totExtraTot = redondearLocal(totExtraTot);
       totCompOrd = redondear2DecLocal(totCompOrd);
       totCompFest = redondear2DecLocal(totCompFest);
-      const totFinalComp = redondear2DecLocal(totCompOrd + totCompFest);
 
       const saldoAnt = redondearLocal(Number(emp.saldoHorasAnterior || 0));
-      const saldoPer = totExtraTot;
-      const saldoTotAcum = redondearLocal(saldoPer + saldoAnt);
+
+      // REGLA CRÍTICA DE COMPENSACIÓN:
+      // Si el trabajador tiene saldo positivo (deuda por haber trabajado menos horas en períodos anteriores),
+      // este saldo se SUMA a las horas de la nómina requeridas en este período (contractHoursEfectivas).
+      // Las horas extra se computan ÚNICAMENTE sobre las horas trabajadas que superen la nómina efectiva.
+      const contractHoursEfectivas = redondearLocal(Math.max(0, totContractHours + saldoAnt));
+      
+      const difPeriodo = redondearLocal(totWorked - contractHoursEfectivas);
+      // Horas extra totales del período: solo el excedente sobre la nómina efectiva
+      totExtraTot = Math.max(0, difPeriodo);
+      // Las horas extra ordinarias descuentan las horas festivas trabajadas (que se pagan a tarifa festiva)
+      totExtraOrd = Math.max(0, redondearLocal(totExtraTot - totFestWorked));
+
+      // Saldo restante: si no alcanzó las horas requeridas (difPeriodo < 0), la diferencia pasa como saldo a recuperar
+      const saldoRestante = difPeriodo < 0 ? Math.abs(difPeriodo) : 0;
+      const saldoTotAcum = saldoRestante;
+      const saldoPer = difPeriodo;
+
+      totCompOrd = redondear2DecLocal(totExtraOrd * pNorm);
+      totCompFest = redondear2DecLocal(totFestWorked * pFest);
+      const totFinalComp = redondear2DecLocal(totCompOrd + totCompFest);
 
       const roleList = (Array.isArray(emp.depts) && emp.depts.length) ? emp.depts.join(', ') : (emp.dept || '');
 
@@ -422,6 +440,7 @@
         role: roleList,
         contractHours: totContractHours,
         contractHoursBase: totContractBase,
+        contractHoursEfectivas: contractHoursEfectivas,
         giorniLavorativiBase: dBase,
         oreGiornaliereBase: redondearLocal(contratoSem / dBase),
         festivosDeduction: totDeduccionFest,
@@ -776,10 +795,101 @@
         const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
         const emp = emps.find(function (e) { return e.id === id; });
         if (emp) {
+          const saldoAnterior = Number(emp.saldoHorasAnterior || 0);
           emp.saldoHorasAnterior = redondearLocal(saldo);
           setLocalJson(STORAGE_KEYS.EMPLEADOS, emps);
+
+          const historial = getLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, []);
+          historial.push({
+            id: generarIdLocal(),
+            employeeId: emp.id,
+            employeeName: emp.name,
+            calendarId: null,
+            calendarName: 'Ajuste manual admin',
+            compensationId: null,
+            periodo: 'Ajuste directo',
+            contractHours: Number(emp.hours || 0),
+            workedHours: 0,
+            saldoAnterior: saldoAnterior,
+            saldoPeriodo: 0,
+            ajusteManual: redondearLocal(saldo - saldoAnterior),
+            finalExtraHours: 0,
+            saldoResultante: redondearLocal(saldo),
+            tipo: saldo > 0 ? 'DEFICIT' : (saldo < 0 ? 'CREDITO' : 'AL_DIA'),
+            origen: 'Ajuste rápido de saldo (✏️)',
+            createdAt: new Date().toISOString()
+          });
+          setLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, historial);
         }
-        return { ok: true };
+        return { ok: true, saldoResultante: redondearLocal(saldo) };
+      }
+
+      case 'consolidarSaldosCalendario': {
+        const calId = (args.length >= 2 && typeof args[0] === 'string' && (args[0].indexOf('tok_') === 0 || args[0].indexOf('session') === 0)) ? args[1] : (args[0] || args[1]);
+        const empIdTarget = (args.length >= 2 && typeof args[0] === 'string' && (args[0].indexOf('tok_') === 0 || args[0].indexOf('session') === 0)) ? (args[2] || null) : (args[1] || null);
+        const cals = getLocalJson(STORAGE_KEYS.CALENDARIOS, []);
+        const cal = cals.find(function (c) { return c.id === calId; });
+        if (!cal) throw new Error('Calendario no encontrado.');
+
+        const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
+        const resumenes = calcularResumenCalendarioLocal(cal.id);
+        const historial = getLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, []);
+        let actualizados = 0;
+
+        resumenes.forEach(function (res) {
+          if (empIdTarget && res.employeeId !== empIdTarget) return;
+
+          const emp = emps.find(function (e) { return e.id === res.employeeId; });
+          if (!emp) return;
+
+          const saldoAnt = redondearLocal(Number(emp.saldoHorasAnterior || 0));
+          const contractHoursEfectivas = redondearLocal(Number(res.contractHoursEfectivas || Math.max(0, res.contractHours + saldoAnt)));
+          const difPeriodo = redondearLocal(Number(res.workedHours) - contractHoursEfectivas);
+          
+          // Si difPeriodo < 0, trabajó menos horas de las requeridas: queda debiendo la diferencia.
+          // Si difPeriodo >= 0, completó sus horas y cubrió cualquier saldo pendiente: saldo 0.
+          const nuevoSaldo = redondearLocal(difPeriodo < 0 ? Math.abs(difPeriodo) : 0);
+
+          emp.saldoHorasAnterior = nuevoSaldo;
+
+          // Si ya existe un registro consolidado para este empleado y calendario, lo actualizamos
+          const idxHist = historial.findIndex(function (h) {
+            return h.calendarId === cal.id && h.employeeId === emp.id && h.origen && h.origen.indexOf('Consolidación') >= 0;
+          });
+
+          const reg = {
+            id: idxHist >= 0 ? historial[idxHist].id : generarIdLocal(),
+            employeeId: emp.id,
+            employeeName: emp.name,
+            calendarId: cal.id,
+            calendarName: cal.nombre,
+            compensationId: null,
+            periodo: cal.desde + ' - ' + cal.hasta,
+            contractHours: res.contractHours,
+            contractHoursEfectivas: contractHoursEfectivas,
+            workedHours: res.workedHours,
+            workedFestiveHours: res.workedFestiveHours || 0,
+            saldoAnterior: saldoAnt,
+            saldoPeriodo: res.saldoPeriodo || 0,
+            ajusteManual: 0,
+            finalExtraHours: res.extraHours || 0,
+            saldoResultante: nuevoSaldo,
+            tipo: nuevoSaldo > 0 ? 'DEFICIT' : (nuevoSaldo < 0 ? 'CREDITO' : 'AL_DIA'),
+            origen: 'Consolidación de saldos del calendario ' + cal.nombre,
+            createdAt: new Date().toISOString()
+          };
+
+          if (idxHist >= 0) {
+            historial[idxHist] = reg;
+          } else {
+            historial.push(reg);
+          }
+          actualizados++;
+        });
+
+        setLocalJson(STORAGE_KEYS.EMPLEADOS, emps);
+        setLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, historial);
+        return { ok: true, actualizados: actualizados };
       }
 
       case 'generarReciboCompenso': {
@@ -856,8 +966,12 @@
           createdAt: new Date().toISOString()
         };
 
-        const saldoRestante = redondearLocal(((resumen.saldoTotalAcumulado || 0) + adj) - finalOrd);
+        const saldoAnt = redondearLocal(Number(emp.saldoHorasAnterior || 0));
+        const contractHoursEfectivas = Number(resumen.contractHoursEfectivas || (resumen.contractHours + saldoAnt));
+        const difPeriodo = redondearLocal(resumen.workedHours - contractHoursEfectivas);
+        const saldoRestante = redondearLocal(difPeriodo < 0 ? Math.abs(difPeriodo) : (adj < 0 ? Math.abs(adj) : 0));
         compObj.saldoRestante = saldoRestante;
+        compObj.contractHoursEfectivas = contractHoursEfectivas;
 
         const compensos = getLocalJson(STORAGE_KEYS.COMPENSOS, []);
         compensos.push(compObj);
@@ -888,6 +1002,30 @@
         const enlaces = getLocalJson(STORAGE_KEYS.ENLACES, []);
         enlaces.push(enlaceObj);
         setLocalJson(STORAGE_KEYS.ENLACES, enlaces);
+        const historial = getLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, []);
+        historial.push({
+          id: generarIdLocal(),
+          employeeId: emp.id,
+          employeeName: emp.name,
+          calendarId: cal.id,
+          calendarName: cal.nombre,
+          compensationId: compId,
+          periodo: cal.desde + ' - ' + cal.hasta,
+          contractHours: resumen.contractHours,
+          contractHoursEfectivas: contractHoursEfectivas,
+          workedHours: resumen.workedHours,
+          workedFestiveHours: finalFest,
+          saldoAnterior: saldoAnt,
+          saldoPeriodo: resumen.saldoPeriodo || 0,
+          ajusteManual: adj,
+          finalExtraHours: finalOrd,
+          saldoResultante: saldoRestante,
+          tipo: saldoRestante > 0 ? 'DEFICIT' : 'AL_DIA',
+          origen: 'Generación de recibo de compenso Hosteleria',
+          createdAt: new Date().toISOString()
+        });
+        setLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, historial);
+
 
         return { ok: true, compensacion: compObj, enlace: enlaceObj };
       }
@@ -1056,8 +1194,87 @@
       case 'cerrarSesionAdmin':
         return { ok: true };
 
-      case 'listarHistorialSaldos':
-        return getLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, []);
+      case 'listarHistorialSaldos': {
+        return {
+          ok: true,
+          historial: getLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, []),
+          empleados: getLocalJson(STORAGE_KEYS.EMPLEADOS, [])
+        };
+      }
+
+      case 'guardarAjusteManualSaldo': {
+        const datos = (args && args[1] && typeof args[1] === 'object') ? args[1] : (args && args[0] && typeof args[0] === 'object' ? args[0] : {});
+        if (!datos || !datos.employeeId) throw new Error('Empleado no especificado.');
+        const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
+        const emp = emps.find(function (e) { return e.id === String(datos.employeeId); });
+        if (!emp) throw new Error('Empleado no encontrado.');
+
+        const nuevoSaldo = redondearLocal(Number(datos.nuevoSaldo || 0));
+        const saldoAnterior = Number(emp.saldoHorasAnterior || 0);
+        emp.saldoHorasAnterior = nuevoSaldo;
+        setLocalJson(STORAGE_KEYS.EMPLEADOS, emps);
+
+        const historial = getLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, []);
+        historial.push({
+          id: generarIdLocal(),
+          employeeId: emp.id,
+          employeeName: emp.name,
+          calendarId: null,
+          calendarName: 'Ajuste Manual Admin',
+          compensationId: null,
+          periodo: datos.periodo || 'Ajuste Manual',
+          contractHours: Number(emp.hours || 0),
+          workedHours: 0,
+          saldoAnterior: saldoAnterior,
+          saldoPeriodo: 0,
+          ajusteManual: redondearLocal(nuevoSaldo - saldoAnterior),
+          finalExtraHours: 0,
+          saldoResultante: nuevoSaldo,
+          tipo: nuevoSaldo > 0 ? 'DEFICIT' : (nuevoSaldo < 0 ? 'CREDITO' : 'AL_DIA'),
+          origen: String(datos.nota || 'Ajuste manual del administrador').trim(),
+          createdAt: new Date().toISOString()
+        });
+        setLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, historial);
+
+        return { ok: true, saldoResultante: nuevoSaldo };
+      }
+
+      case 'eliminarRegistroSaldo': {
+        const registroId = String((args && args[1]) || (args && args[0]) || '');
+        const historial = getLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, []);
+        const restantes = historial.filter(function (h) { return h.id !== registroId; });
+        setLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, restantes);
+        return { ok: true };
+      }
+
+      case 'restablecerTodosSaldos': {
+        const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
+        emps.forEach(function (e) { e.saldoHorasAnterior = 0; });
+        setLocalJson(STORAGE_KEYS.EMPLEADOS, emps);
+
+        const historial = getLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, []);
+        historial.push({
+          id: generarIdLocal(),
+          employeeId: '',
+          employeeName: 'TODOS',
+          calendarId: null,
+          calendarName: 'Restablecimiento general',
+          compensationId: null,
+          periodo: 'Todos los períodos',
+          contractHours: 0,
+          workedHours: 0,
+          saldoAnterior: 0,
+          saldoPeriodo: 0,
+          ajusteManual: 0,
+          finalExtraHours: 0,
+          saldoResultante: 0,
+          tipo: 'NEUTRO',
+          origen: 'Restablecimiento general a 0h por admin',
+          createdAt: new Date().toISOString()
+        });
+        setLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, historial);
+        return { ok: true };
+      }
 
       default:
         console.warn('Función no mapeata localmente:', nombreFuncion);

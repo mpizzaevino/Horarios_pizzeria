@@ -20,7 +20,135 @@
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--crema); color: var(--texto); font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; min-height: 100vh; }
-    @media print { body { display: none !important; } }
+    /* ========================================================
+       PROTECCIÓN TOTAL CONTRA IMPRESIÓN Y CAPTURA DE PANTALLA
+       ======================================================== */
+    @media print {
+      html, body {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        height: 0 !important;
+        width: 0 !important;
+        overflow: hidden !important;
+      }
+      #print-block-screen {
+        display: flex !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: #ffffff !important;
+        color: #b91c1c !important;
+        font-size: 22px !important;
+        font-weight: bold !important;
+        justify-content: center !important;
+        align-items: center !important;
+        text-align: center !important;
+        z-index: 99999999 !important;
+        font-family: 'Segoe UI', Arial, sans-serif !important;
+      }
+    }
+    @page {
+      size: auto;
+      margin: 0mm;
+    }
+
+    /* Anti-selección y bloqueo de cursor */
+    html, body {
+      -webkit-user-select: none !important;
+      -moz-user-select: none !important;
+      -ms-user-select: none !important;
+      user-select: none !important;
+      -webkit-touch-callout: none !important;
+    }
+
+    /* Filigrana de fondo con aviso de confidencialidad */
+    .filigrana-seguridad {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.035;
+      background-image: repeating-linear-gradient(
+        -45deg,
+        #000000 0,
+        #000000 2px,
+        transparent 2px,
+        transparent 150px
+      );
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-around;
+      align-content: space-around;
+      overflow: hidden;
+      font-size: 13px;
+      font-weight: 800;
+      color: #000;
+      letter-spacing: 2px;
+      user-select: none;
+    }
+
+    /* Escudo de privacidad al perder el foco (Snipping Tool / captura de pantalla) */
+    #pantalla-privacidad {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(18, 12, 14, 0.96);
+      backdrop-filter: blur(40px);
+      -webkit-backdrop-filter: blur(40px);
+      z-index: 999999;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: #f8f4ed;
+      text-align: center;
+      padding: 30px;
+    }
+    #pantalla-privacidad .icono-priv {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+    #pantalla-privacidad h2 {
+      font-size: 22px;
+      color: #fca5a5;
+      margin-bottom: 8px;
+    }
+    #pantalla-privacidad p {
+      font-size: 14px;
+      color: #e2e8f0;
+      max-width: 480px;
+      line-height: 1.5;
+    }
+
+    /* Toast de advertencia de seguridad */
+    #toast-seguridad {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #7f1d1d;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      z-index: 9999999;
+      display: none;
+      animation: aparecerToast 0.25s ease-out;
+    }
+    @keyframes aparecerToast {
+      from { opacity: 0; transform: translate(-50%, 10px); }
+      to { opacity: 1; transform: translate(-50%, 0); }
+    }
 
     .cabecera { background: linear-gradient(135deg, var(--vino-oscuro) 0%, var(--vino) 60%, #8b1a2e 100%); color: white; padding: 28px 20px 22px; text-align: center; box-shadow: 0 3px 15px rgba(0,0,0,.25); }
     .logo-marca { font-size: 11px; font-weight: 900; letter-spacing: 4px; text-transform: uppercase; color: var(--oro); margin-bottom: 6px; }
@@ -112,7 +240,27 @@
   </style>
   <script src="local_engine.js"></script>
 </head>
-<body>
+<body ondragstart="return false;">
+  <div id="print-block-screen" style="display:none;">
+    ⚠️ DOCUMENTO CONFIDENCIAL PROTEGIDO<br>
+    <span style="font-size:14px; font-weight:normal; color:#555; margin-top:8px;">La impresión de este enlace no está autorizada.</span>
+  </div>
+
+  <div id="pantalla-privacidad">
+    <div class="icono-priv">🛡️</div>
+    <h2>DOCUMENTO CONFIDENCIAL PROTEGIDO</h2>
+    <p>Por motivos de seguridad y confidencialidad, el contenido se oculta automáticamente al activar herramientas de captura de pantalla o cambiar de aplicación.</p>
+    <p style="margin-top:14px; font-size:12px; color:#94a3b8;">Haz clic en esta ventana para reactivar la visualización.</p>
+  </div>
+
+  <div id="toast-seguridad"></div>
+
+  <div class="filigrana-seguridad" aria-hidden="true">
+    <span>CONFIDENCIAL • SOLO CONSULTA</span>
+    <span>CONFIDENCIAL • SOLO CONSULTA</span>
+    <span>CONFIDENCIAL • SOLO CONSULTA</span>
+    <span>CONFIDENCIAL • SOLO CONSULTA</span>
+  </div>
   <header class="cabecera">
     <div class="logo-icono">📋</div>
     <div class="logo-marca">Portal de Consulta</div>
@@ -550,6 +698,12 @@
         html += '<tr style="font-weight:600;"><td>Horas debidas del período (H_NOMINA)</td><td class="num" style="color:#0c4a6e;">' + numero(c.contractHours) + ' h</td></tr>';
       } else {
         html += '<tr style="font-weight:600;"><td>Horas debidas del período (H_NOMINA)</td><td class="num">' + numero(c.contractHours) + ' h</td></tr>';
+      var saldoAntRec = Number(c.saldoHorasAnterior || 0);
+      if (saldoAntRec > 0) {
+        html += '<tr style="background:#fff7ed; color:#c2410c;"><td>+ Horas pendientes a compensar de período anterior</td><td class="num" style="font-weight:bold;">+' + numero(saldoAntRec) + ' h</td></tr>';
+        html += '<tr style="font-weight:700; background:#fef3c7;"><td>Total horas requeridas antes de devengar horas extra</td><td class="num" style="color:#92400e; font-weight:bold;">' + numero(c.contractHoursEfectivas || (c.contractHours + saldoAntRec)) + ' h</td></tr>';
+      }
+
       }
 
       html += '<tr><td>Horas efectivamente trabajadas</td><td class="num"><strong>' + numero(c.workedHours) + ' h</strong></td></tr>';
@@ -718,6 +872,127 @@
     }
     window.addEventListener('DOMContentLoaded', initViewPage);
     window.onload = initViewPage;
-  </script>
+  
+  /* ========================================================
+     SISTEMA DE SEGURIDAD: ANTI-IMPRESIÓN Y ANTI-CAPTURA DE PANTALLA
+     ======================================================== */
+  function mostrarAvisoSeguridad(mensaje) {
+    var toast = document.getElementById('toast-seguridad');
+    if (!toast) return;
+    toast.textContent = mensaje || '⚠️ Acción restringida por confidencialidad.';
+    toast.style.display = 'block';
+    if (window._toastSeguridadTimer) clearTimeout(window._toastSeguridadTimer);
+    window._toastSeguridadTimer = setTimeout(function() {
+      toast.style.display = 'none';
+    }, 2800);
+  }
+
+  function oscurecerTemporalmente() {
+    var priv = document.getElementById('pantalla-privacidad');
+    if (priv) {
+      priv.style.display = 'flex';
+      setTimeout(function() {
+        if (document.hasFocus()) {
+          priv.style.display = 'none';
+        }
+      }, 1500);
+    }
+  }
+
+  // 1. Escudo al perder el foco (Snipping Tool, Grabadores de pantalla, Win+Shift+S, cambiar de app)
+  window.addEventListener('blur', function() {
+    var priv = document.getElementById('pantalla-privacidad');
+    if (priv) priv.style.display = 'flex';
+  });
+
+  window.addEventListener('focus', function() {
+    var priv = document.getElementById('pantalla-privacidad');
+    if (priv) priv.style.display = 'none';
+  });
+
+  // 2. Detección de tecla PrintScreen (vacía portapapeles y activa escudo)
+  window.addEventListener('keyup', function(e) {
+    if (e.key === 'PrintScreen' || e.keyCode === 44) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText('');
+      }
+      oscurecerTemporalmente();
+      mostrarAvisoSeguridad('⚠️ Capturas de pantalla bloqueadas por protección de datos.');
+    }
+  });
+
+  // 3. Bloqueo de atajos de teclado (Impresión, Guardar, Copiar, Inspeccionar)
+  window.addEventListener('keydown', function(e) {
+    var k = (e.key || '').toLowerCase();
+    var ctrl = e.ctrlKey || e.metaKey;
+
+    // Ctrl+P / Cmd+P (Imprimir)
+    if (ctrl && k === 'p') {
+      e.preventDefault();
+      e.stopPropagation();
+      mostrarAvisoSeguridad('⚠️ La impresión está deshabilitada por confidencialidad.');
+      return false;
+    }
+
+    // Ctrl+S / Cmd+S (Guardar página)
+    if (ctrl && k === 's') {
+      e.preventDefault();
+      e.stopPropagation();
+      mostrarAvisoSeguridad('⚠️ El guardado local está deshabilitado.');
+      return false;
+    }
+
+    // Ctrl+U / Cmd+U (Ver código fuente)
+    if (ctrl && k === 'u') {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+
+    // Ctrl+C / Cmd+C (Copiar)
+    if (ctrl && (k === 'c' || k === 'x')) {
+      e.preventDefault();
+      e.stopPropagation();
+      mostrarAvisoSeguridad('⚠️ La copia de texto está bloqueada.');
+      return false;
+    }
+
+    // F12 o herramientas de desarrollador
+    if (e.keyCode === 123 || e.key === 'F12' || (ctrl && e.shiftKey && (k === 'i' || k === 'j' || k === 'c'))) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+  }, true);
+
+  // 4. Bloqueo de clic derecho (menú contextual)
+  document.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+    mostrarAvisoSeguridad('⚠️ Menú contextual deshabilitado.');
+    return false;
+  });
+
+  // 5. Bloqueo de eventos de copia y arrastre
+  document.addEventListener('copy', function(e) {
+    e.preventDefault();
+    if (e.clipboardData) e.clipboardData.setData('text/plain', '');
+    mostrarAvisoSeguridad('⚠️ Copia bloqueada.');
+    return false;
+  });
+  document.addEventListener('dragstart', function(e) {
+    e.preventDefault();
+    return false;
+  });
+
+  // 6. Evento de impresión nativo del navegador
+  window.addEventListener('beforeprint', function(e) {
+    document.body.style.display = 'none';
+    mostrarAvisoSeguridad('⚠️ Impresión bloqueada.');
+  });
+  window.addEventListener('afterprint', function() {
+    document.body.style.display = '';
+  });
+
+</script>
 </body>
 </html>

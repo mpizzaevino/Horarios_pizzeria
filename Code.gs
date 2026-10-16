@@ -857,9 +857,96 @@ function guardarSaldoEmpleado(tokenSesion, employeeId, nuevoSaldo) {
   const emp = empleados.find(function(e) { return e.id === String(employeeId); });
   if (!emp) throw new Error('Empleado no encontrado.');
 
+  const saldoAnterior = Number(emp.saldoHorasAnterior || 0);
   emp.saldoHorasAnterior = redondear(Number(nuevoSaldo || 0));
   guardarEmpleados_(empleados);
+
+  const historial = obtenerJson_(CONFIG.HISTORIAL_SALDOS, []);
+  historial.push({
+    id: generarId_(),
+    employeeId: emp.id,
+    employeeName: emp.name,
+    calendarId: null,
+    calendarName: 'Ajuste manual admin',
+    compensationId: null,
+    periodo: 'Ajuste directo',
+    contractHours: Number(emp.hours || 0),
+    workedHours: 0,
+    saldoAnterior: saldoAnterior,
+    saldoPeriodo: 0,
+    ajusteManual: redondear(emp.saldoHorasAnterior - saldoAnterior),
+    finalExtraHours: 0,
+    saldoResultante: emp.saldoHorasAnterior,
+    tipo: emp.saldoHorasAnterior > 0 ? 'DEFICIT' : (emp.saldoHorasAnterior < 0 ? 'CREDITO' : 'AL_DIA'),
+    origen: 'Ajuste rápido de saldo (✏️)',
+    createdAt: new Date().toISOString()
+  });
+  guardarJson_(CONFIG.HISTORIAL_SALDOS, historial);
+
   return { ok: true, saldoHorasAnterior: emp.saldoHorasAnterior };
+}
+
+function consolidarSaldosCalendario(tokenSesion, calendarId, employeeIdTarget) {
+  verificarSesion_(tokenSesion);
+  const calendarios = obtenerCalendarios_();
+  const cal = calendarios.find(function(c) { return c.id === String(calendarId); });
+  if (!cal) throw new Error('Calendario no encontrado.');
+
+  const empleados = obtenerEmpleados_();
+  const resumenes = calcularResumenCalendario(tokenSesion, cal.id);
+  const historial = obtenerJson_(CONFIG.HISTORIAL_SALDOS, []);
+  let actualizados = 0;
+
+  resumenes.forEach(function(res) {
+    if (employeeIdTarget && res.employeeId !== employeeIdTarget) return;
+
+    const emp = empleados.find(function(e) { return e.id === res.employeeId; });
+    if (!emp) return;
+
+    const saldoAnt = redondear(Number(emp.saldoHorasAnterior || 0));
+    const contractHoursEfectivas = redondear(Number(res.contractHoursEfectivas || Math.max(0, res.contractHours + saldoAnt)));
+    const difPeriodo = redondear(Number(res.workedHours) - contractHoursEfectivas);
+    const nuevoSaldo = redondear(difPeriodo < 0 ? Math.abs(difPeriodo) : 0);
+
+    emp.saldoHorasAnterior = nuevoSaldo;
+
+    const idxHist = historial.findIndex(function(h) {
+      return h.calendarId === cal.id && h.employeeId === emp.id && h.origen && h.origen.indexOf('Consolidación') >= 0;
+    });
+
+    const reg = {
+      id: idxHist >= 0 ? historial[idxHist].id : generarId_(),
+      employeeId: emp.id,
+      employeeName: emp.name,
+      calendarId: cal.id,
+      calendarName: cal.nombre,
+      compensationId: null,
+      periodo: cal.desde + ' - ' + cal.hasta,
+      contractHours: res.contractHours,
+      contractHoursEfectivas: contractHoursEfectivas,
+      workedHours: res.workedHours,
+      workedFestiveHours: res.workedFestiveHours || 0,
+      saldoAnterior: saldoAnt,
+      saldoPeriodo: res.saldoPeriodo || 0,
+      ajusteManual: 0,
+      finalExtraHours: res.extraHours || 0,
+      saldoResultante: nuevoSaldo,
+      tipo: nuevoSaldo > 0 ? 'DEFICIT' : (nuevoSaldo < 0 ? 'CREDITO' : 'AL_DIA'),
+      origen: 'Consolidación de saldos del calendario ' + cal.nombre,
+      createdAt: new Date().toISOString()
+    };
+
+    if (idxHist >= 0) {
+      historial[idxHist] = reg;
+    } else {
+      historial.push(reg);
+    }
+    actualizados++;
+  });
+
+  guardarEmpleados_(empleados);
+  guardarJson_(CONFIG.HISTORIAL_SALDOS, historial);
+  return { ok: true, actualizados: actualizados };
 }
 
 function eliminarEmpleado(tokenSesion, id) {
@@ -1658,11 +1745,24 @@ function calcularResumenCalendario(calendarioId) {
     totExtraHoursTot = redondear(totExtraHoursTot);
     totCompensoOrd = redondear2Decimales_(totCompensoOrd);
     totCompensoFest = redondear2Decimales_(totCompensoFest);
-    const totCompensoFinal = redondear2Decimales_(totCompensoOrd + totCompensoFest);
 
     const saldoAnterior = redondear(Number(empleado.saldoHorasAnterior || 0));
-    const saldoPeriodo = totExtraHoursTot;
-    const saldoTotalAcumulado = redondear(saldoPeriodo + saldoAnterior);
+
+    // REGLA CRÍTICA DE COMPENSACIÓN:
+    // El saldo positivo (deuda por haber trabajado menos horas en períodos anteriores)
+    // se SUMA a las horas requeridas de la nómina del período (contractHoursEfectivas).
+    // Las horas extra se computan ÚNICAMENTE sobre las horas trabajadas que superen la nómina efectiva.
+    const contractHoursEfectivas = redondear(Math.max(0, totContractHours + saldoAnterior));
+    const difPeriodo = redondear(totWorkedHours - contractHoursEfectivas);
+    totExtraHoursTot = Math.max(0, difPeriodo);
+    totExtraHoursOrd = Math.max(0, redondear(totExtraHoursTot - totWorkedFestiveHours));
+    const saldoRestante = difPeriodo < 0 ? Math.abs(difPeriodo) : 0;
+    const saldoTotalAcumulado = saldoRestante;
+    const saldoPeriodo = difPeriodo;
+
+    totCompensoOrd = redondear2Decimales_(totExtraHoursOrd * precioHoraExtra);
+    totCompensoFest = redondear2Decimales_(totWorkedFestiveHours * precioHoraFestiva);
+    const totCompensoFinal = redondear2Decimales_(totCompensoOrd + totCompensoFest);
 
     const roleList = (Array.isArray(empleado.depts) && empleado.depts.length)
       ? empleado.depts.join(', ')
@@ -1674,6 +1774,8 @@ function calcularResumenCalendario(calendarioId) {
       role: roleList,
       contractHours: totContractHours,
       contractHoursBase: totContractBase,
+      contractHoursEfectivas: contractHoursEfectivas,
+      contractHoursEfectivas: contractHoursEfectivas,
       giorniLavorativiBase: diasBase,
       oreGiornaliereBase: redondear(contratoSem / diasBase),
       festivosDeduction: totDeduccionFestivos,
