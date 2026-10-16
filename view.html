@@ -655,6 +655,27 @@
       }
     }
 
+    
+    function procesarRespuestaServidor(respuesta) {
+      if (!respuesta || !respuesta.ok) {
+        var motivo = (respuesta && (respuesta.motivo || respuesta.mensaje)) || 'Enlace no válido o caducado.';
+        document.getElementById('contenidoPrincipal').innerHTML =
+          '<div class="estado-error"><div class="icono-error">⚠️</div>' +
+          '<strong>Enlace no disponible</strong><p style="margin-top:8px;font-size:13px;">' + escaparHTML(motivo) + '</p></div>';
+        return;
+      }
+
+      if (respuesta.tipo === 'horario') {
+        renderHorario(respuesta);
+      } else if (respuesta.tipo === 'compensacion') {
+        renderCompensacion(respuesta);
+      } else {
+        document.getElementById('contenidoPrincipal').innerHTML =
+          '<div class="estado-error"><div class="icono-error">⚠️</div>' +
+          '<strong>Tipo de vista no reconocido</strong></div>';
+      }
+    }
+
     function initViewPage() {
       var pagina = '';
       var token = '';
