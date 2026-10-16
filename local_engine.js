@@ -26,7 +26,7 @@
     cena: { nombre: 'Cena', inicio: '19:30', fin: '23:30' }
   };
 
-  const EMPLEADOS_DEFAULT = [
+    const EMPLEADOS_DEFAULT = [
     {
       id: '1',
       name: 'Gilberto Nasser',
@@ -57,17 +57,104 @@
     },
     {
       id: '3',
-      name: 'Marcellino',
-      phone: '+34 600 00 00 01',
+      name: 'Angela Nasser',
+      phone: '+34 610 19 41 62',
       email: '',
       dept: 'COCINA',
       depts: ['COCINA'],
-      hours: 30,
+      hours: 40,
       active: true,
       prefShift: ['Cualquiera'],
       exclShift: [],
       exclDay: [],
       saldoHorasAnterior: 0
+    },
+    {
+      id: '4',
+      name: 'Manuel (nuevo)',
+      phone: '+34 654 44 25 99',
+      email: '',
+      dept: 'SALA',
+      depts: ['SALA'],
+      hours: 40,
+      active: true,
+      prefShift: ['Cualquiera'],
+      exclShift: [],
+      exclDay: [],
+      saldoHorasAnterior: 0
+    },
+    {
+      id: '5',
+      name: 'Rosmary Nasser',
+      phone: '+34 681 35 75 83',
+      email: '',
+      dept: 'SALA',
+      depts: ['SALA'],
+      hours: 40,
+      active: false,
+      prefShift: ['Cualquiera'],
+      exclShift: [],
+      exclDay: [],
+      saldoHorasAnterior: 0
+    },
+    {
+      id: '6',
+      name: 'Facundo Cam',
+      phone: '+34 654 44 25 99',
+      email: '',
+      dept: 'SALA',
+      depts: ['SALA'],
+      hours: 40,
+      active: true,
+      prefShift: ['Cualquiera'],
+      exclShift: ['Mañana', 'Tarde'],
+      exclDay: ['Lunes', 'Martes', 'Miércoles', 'Jueves'],
+      saldoHorasAnterior: 0
+    }
+  ];
+
+  const PLANTILLAS_DEFAULT = [
+    {
+      id: 'plantilla_estandar',
+      nombre: 'Estándar Marcellino',
+      turnos: {
+        manana: { nombre: 'Mañana', inicio: '10:00', fin: '16:00' },
+        tarde: { nombre: 'Comida', inicio: '13:00', fin: '16:30' },
+        cena: { nombre: 'Cena', inicio: '19:30', fin: '23:30' }
+      },
+      necesidades: {
+        manana: { COCINA: 1, PIZZERIA: 0, SALA: 2 },
+        tarde: { COCINA: 1, PIZZERIA: 1, SALA: 2 },
+        cena: { COCINA: 1, PIZZERIA: 1, SALA: 3 }
+      },
+      horariosRoles: {
+        manana: {
+          COCINA:   { inicio: '10:00', fin: '16:00' },
+          PIZZERIA: { inicio: '10:00', fin: '16:00' },
+          SALA:     { inicio: '10:00', fin: '16:00' }
+        },
+        tarde: {
+          COCINA:   { inicio: '13:00', fin: '16:30' },
+          PIZZERIA: { inicio: '13:00', fin: '16:30' },
+          SALA:     { inicio: '13:00', fin: '16:30' }
+        },
+        cena: {
+          COCINA:   { inicio: '19:30', fin: '23:30' },
+          PIZZERIA: { inicio: '19:30', fin: '23:30' },
+          SALA:     { inicio: '19:30', fin: '23:30' }
+        }
+      },
+      turnosActivosPorDia: {
+        Lunes:     { manana: true, tarde: true, cena: true },
+        Martes:    { manana: true, tarde: true, cena: true },
+        Miércoles: { manana: true, tarde: true, cena: true },
+        Jueves:    { manana: true, tarde: true, cena: true },
+        Viernes:   { manana: true, tarde: true, cena: true },
+        Sábado:    { manana: true, tarde: true, cena: true },
+        Domingo:   { manana: true, tarde: true, cena: true }
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     }
   ];
 
@@ -90,7 +177,9 @@
   }
 
   function initStorageIfNeeded() {
-    if (!localStorage.getItem(STORAGE_KEYS.EMPLEADOS)) {
+    const empsGuardados = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
+    // Si no hay empleados o solo estaban los 3 empleados de prueba iniciales, cargar la lista oficial
+    if (!empsGuardados || empsGuardados.length === 0 || empsGuardados.some(e => e.name === 'Marcellino')) {
       setLocalJson(STORAGE_KEYS.EMPLEADOS, EMPLEADOS_DEFAULT);
     }
     if (!localStorage.getItem(STORAGE_KEYS.AJUSTES)) {
@@ -112,8 +201,9 @@
     if (!localStorage.getItem(STORAGE_KEYS.HISTORIAL_SALDOS)) {
       setLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, []);
     }
-    if (!localStorage.getItem(STORAGE_KEYS.PLANTILLAS)) {
-      setLocalJson(STORAGE_KEYS.PLANTILLAS, []);
+    const plantillasGuardadas = getLocalJson(STORAGE_KEYS.PLANTILLAS, []);
+    if (!plantillasGuardadas || plantillasGuardadas.length === 0) {
+      setLocalJson(STORAGE_KEYS.PLANTILLAS, PLANTILLAS_DEFAULT);
     }
   }
 
@@ -344,6 +434,31 @@
     initStorageIfNeeded();
 
     switch (nombreFuncion) {
+      case 'exportarSistemaCompleto': {
+        const backup = {
+          version: '1.0',
+          fecha: new Date().toISOString(),
+          empleados: getLocalJson(STORAGE_KEYS.EMPLEADOS, []),
+          calendarios: getLocalJson(STORAGE_KEYS.CALENDARIOS, []),
+          plantillas: getLocalJson(STORAGE_KEYS.PLANTILLAS, []),
+          enlaces: getLocalJson(STORAGE_KEYS.ENLACES, []),
+          ajustes: getLocalJson(STORAGE_KEYS.AJUSTES, {}),
+          historialSaldos: getLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, [])
+        };
+        return { ok: true, backup: backup };
+      }
+
+      case 'importarSistemaCompleto': {
+        const datos = args[0] || {};
+        if (datos.empleados) setLocalJson(STORAGE_KEYS.EMPLEADOS, datos.empleados);
+        if (datos.calendarios) setLocalJson(STORAGE_KEYS.CALENDARIOS, datos.calendarios);
+        if (datos.plantillas) setLocalJson(STORAGE_KEYS.PLANTILLAS, datos.plantillas);
+        if (datos.enlaces) setLocalJson(STORAGE_KEYS.ENLACES, datos.enlaces);
+        if (datos.ajustes) setLocalJson(STORAGE_KEYS.AJUSTES, datos.ajustes);
+        if (datos.historialSaldos) setLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, datos.historialSaldos);
+        return { ok: true };
+      }
+
       case 'obtenerDatosIniciales': {
         const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
         const cals = getLocalJson(STORAGE_KEYS.CALENDARIOS, []);
