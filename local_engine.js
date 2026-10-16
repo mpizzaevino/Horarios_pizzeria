@@ -176,6 +176,27 @@
     }
   }
 
+  
+  function calcularAlmacenamientoLocal() {
+    let bytes = 0;
+    try {
+      for (let key in localStorage) {
+        if (localStorage.hasOwnProperty(key)) {
+          bytes += (String(localStorage[key]).length + String(key).length) * 2;
+        }
+      }
+    } catch (e) {}
+    const maxBytes = 5 * 1024 * 1024; // 5 MB de cuota estándar localStorage
+    const pct = Math.round((bytes / maxBytes) * 1000) / 10;
+    return {
+      bytesUsados: bytes,
+      bytesTotales: maxBytes,
+      porcentajeTotal: pct,
+      alerta: pct > 80,
+      mensaje: (bytes / 1024).toFixed(1) + ' KB de 5 MB'
+    };
+  }
+
   function initStorageIfNeeded() {
     const empsGuardados = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
     // Si no hay empleados o solo estaban los 3 empleados de prueba iniciales, cargar la lista oficial
@@ -478,7 +499,7 @@
           plantillas: plantillas,
           ajustes: ajustes,
           urlApp: baseUrl,
-          almacenamiento: { ok: true, mensaje: 'GitHub Pages / LocalStorage Mode' }
+          almacenamiento: calcularAlmacenamientoLocal()
         };
       }
 
@@ -525,13 +546,14 @@
       }
 
       case 'generarCalendario': {
-        const datos = args[1];
+        const datos = (args && args[1] && typeof args[1] === 'object') ? args[1] : (args && args[0] && typeof args[0] === 'object' ? args[0] : {});
         const fechas = obtenerFechasPeriodoLocal(datos.desde, datos.hasta);
         const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []).filter(function (e) { return e.active; });
         const asignaciones = [];
         const incidencias = [];
+        const horasAsignadas = {};
+        emps.forEach(function (e) { horasAsignadas[e.id] = 0; });
 
-        // Genera asignaciones básicas
         const turnos = datos.turnos || TURNOS_BASE;
         const clavesTurnos = Object.keys(turnos);
 
@@ -543,15 +565,29 @@
           if (datos.cierres && datos.cierres.indexOf(fStr) >= 0) return;
 
           clavesTurnos.forEach(function (cTurno) {
+            if (datos.turnosActivosPorDia && datos.turnosActivosPorDia[diaNom] && datos.turnosActivosPorDia[diaNom][cTurno] === false) {
+              return;
+            }
+
             const turnoObj = turnos[cTurno];
             const nec = (datos.necesidades && datos.necesidades[cTurno]) || { COCINA: 1, PIZZERIA: 1, SALA: 2 };
+
+            const hIni = Number(turnoObj.inicio.split(':')[0]) + Number(turnoObj.inicio.split(':')[1]) / 60;
+            let hFin = Number(turnoObj.fin.split(':')[0]) + Number(turnoObj.fin.split(':')[1]) / 60;
+            if (hFin < hIni) hFin += 24;
+            const duracion = redondearLocal(hFin - hIni);
+
             Object.keys(nec).forEach(function (rol) {
               const cant = nec[rol] || 0;
               const eleggibili = emps.filter(function (e) {
                 const depts = Array.isArray(e.depts) ? e.depts : [e.dept];
-                return depts.indexOf(rol) >= 0;
+                const matchesRole = depts.indexOf(rol) >= 0;
+                const matchesDay = !(e.exclDay && e.exclDay.indexOf(diaNom) >= 0);
+                const matchesShift = !(e.exclShift && (e.exclShift.indexOf(turnoObj.nombre) >= 0 || e.exclShift.indexOf(cTurno) >= 0));
+                return matchesRole && matchesDay && matchesShift;
               });
 
+              let asignados = 0;
               for (let i = 0; i < cant; i++) {
                 const emp = eleggibili[(idx + i) % Math.max(1, eleggibili.length)];
                 if (emp) {
@@ -564,13 +600,48 @@
                     shiftName: turnoObj.nombre,
                     start: turnoObj.inicio,
                     end: turnoObj.fin,
-                    hours: 5.0,
+                    hours: duracion,
                     role: rol
                   });
+                  horasAsignadas[emp.id] = (horasAsignadas[emp.id] || 0) + duracion;
+                  asignados++;
                 }
+              }
+
+              if (asignados < cant) {
+                const faltantes = cant - asignados;
+                incidencias.push(
+                  '⚠️ Turno sin cubrir: ' + fStr + ' (' + diaNom + ') · ' + turnoObj.nombre + ' · ' + rol +
+                  ' (faltan ' + faltantes + (faltantes === 1 ? ' persona' : ' personas') + ')'
+                );
               }
             });
           });
+        });
+
+        // F2 / Incidencias de horas extra y déficit por trabajador
+        const numSemanas = Math.max(1, fechas.length / 7);
+        const festivos = datos.festivos || [];
+        const numFestivos = festivos.length;
+        const diasBasePeriodo = Number((getLocalJson(STORAGE_KEYS.AJUSTES, {}).diasLaborablesSemana) || 6);
+
+        emps.forEach(function (emp) {
+          const horasSem = Number(emp.hours || 0);
+          const contratoBase = horasSem * numSemanas;
+          const dedFestivos = (horasSem / diasBasePeriodo) * numFestivos;
+          const contratoPeriodo = redondearLocal(Math.max(0, contratoBase - dedFestivos));
+          const trabajadas = redondearLocal(horasAsignadas[emp.id] || 0);
+          const diferencia = redondearLocal(trabajadas - contratoPeriodo);
+
+          if (diferencia > 4) {
+            incidencias.push(
+              '⚠️ ' + emp.name + ': exceso de ' + diferencia + ' horas extra (' + trabajadas + 'h trabajadas vs ' + contratoPeriodo + 'h contrato).'
+            );
+          } else if (diferencia < -4) {
+            incidencias.push(
+              '📉 ' + emp.name + ': déficit de ' + Math.abs(diferencia) + ' horas respecto al contrato (' + trabajadas + 'h trabajadas vs ' + contratoPeriodo + 'h contrato).'
+            );
+          }
         });
 
         const nuevoCal = {
@@ -592,7 +663,7 @@
         };
 
         const cals = getLocalJson(STORAGE_KEYS.CALENDARIOS, []);
-        cals.push(nuevoCal);
+        cals.unshift(nuevoCal);
         setLocalJson(STORAGE_KEYS.CALENDARIOS, cals);
         return nuevoCal;
       }
@@ -613,6 +684,53 @@
         let cals = getLocalJson(STORAGE_KEYS.CALENDARIOS, []);
         cals = cals.filter(function (c) { return c.id !== id; });
         setLocalJson(STORAGE_KEYS.CALENDARIOS, cals);
+        return { ok: true };
+      }
+
+      
+      case 'guardarPlantilla': {
+        const datos = (args && args[1] && typeof args[1] === 'object') ? args[1] : (args && args[0] && typeof args[0] === 'object' ? args[0] : {});
+        if (!datos || !String(datos.nombre || '').trim()) {
+          throw new Error('El nombre de la plantilla es obligatorio.');
+        }
+        const plantillas = getLocalJson(STORAGE_KEYS.PLANTILLAS, []);
+        const id = String(datos.id || generarIdLocal());
+        const idx = plantillas.findIndex(function (p) { return p.id === id; });
+        const plantilla = {
+          id: id,
+          nombre: String(datos.nombre).trim(),
+          turnos: datos.turnos || TURNOS_BASE,
+          necesidades: datos.necesidades || { manana: { COCINA: 1, PIZZERIA: 0, SALA: 2 }, tarde: { COCINA: 1, PIZZERIA: 1, SALA: 2 }, cena: { COCINA: 1, PIZZERIA: 1, SALA: 3 } },
+          horariosRoles: datos.horariosRoles || null,
+          turnosActivosPorDia: datos.turnosActivosPorDia || {
+            Lunes: { manana: true, tarde: true, cena: true },
+            Martes: { manana: true, tarde: true, cena: true },
+            Miércoles: { manana: true, tarde: true, cena: true },
+            Jueves: { manana: true, tarde: true, cena: true },
+            Viernes: { manana: true, tarde: true, cena: true },
+            Sábado: { manana: true, tarde: true, cena: true },
+            Domingo: { manana: true, tarde: true, cena: true }
+          },
+          createdAt: datos.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        if (idx >= 0) {
+          plantillas[idx] = plantilla;
+        } else {
+          plantillas.push(plantilla);
+        }
+        setLocalJson(STORAGE_KEYS.PLANTILLAS, plantillas);
+        return { ok: true, plantilla: plantilla };
+      }
+
+      case 'eliminarPlantilla': {
+        const id = String((args && args[1]) || (args && args[0]) || '');
+        const plantillas = getLocalJson(STORAGE_KEYS.PLANTILLAS, []);
+        const restantes = plantillas.filter(function (p) { return p.id !== id; });
+        if (restantes.length === plantillas.length) {
+          throw new Error('Plantilla no encontrada.');
+        }
+        setLocalJson(STORAGE_KEYS.PLANTILLAS, restantes);
         return { ok: true };
       }
 
@@ -665,20 +783,39 @@
       }
 
       case 'generarReciboCompenso': {
-        const datos = args[1];
+        const datos = (args && args[1] && typeof args[1] === 'object') ? args[1] : (args && args[0] && typeof args[0] === 'object' ? args[0] : {});
         const cals = getLocalJson(STORAGE_KEYS.CALENDARIOS, []);
         const cal = cals.find(function (c) { return c.id === datos.calendarId; });
+        if (!cal) throw new Error('Por favor selecciona un calendario válido.');
+
         const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
         const emp = emps.find(function (e) { return e.id === datos.employeeId; });
-        if (!cal || !emp) throw new Error('Datos incompletos.');
+        if (!emp) throw new Error('Empleado no encontrado.');
 
-        const resumen = calcularResumenCalendarioLocal(cal.id).find(function (r) { return r.employeeId === emp.id; });
+        const resumenes = calcularResumenCalendarioLocal(cal.id);
+        const resumen = resumenes.find(function (r) { return r.employeeId === emp.id; }) || {
+          contractHours: emp.hours || 40,
+          contractHoursBase: emp.hours || 40,
+          giorniLavorativiBase: 6,
+          oreGiornaliereBase: (emp.hours || 40) / 6,
+          festivosDeduction: 0,
+          festivosCount: 0,
+          festivos: [],
+          workedHours: 0,
+          workedFestiveHours: 0,
+          extraHours: 0,
+          saldoHorasAnterior: emp.saldoHorasAnterior || 0,
+          saldoPeriodo: 0,
+          saldoTotalAcumulado: emp.saldoHorasAnterior || 0,
+          desgloseSemanas: []
+        };
+
         const ajustes = getLocalJson(STORAGE_KEYS.AJUSTES, {});
         const pNorm = Number(datos.pricePerHour !== undefined ? datos.pricePerHour : (ajustes.precioHoraExtra || 8.50));
         const pFest = Number(datos.pricePerFestiveHour !== undefined ? datos.pricePerFestiveHour : (ajustes.precioHoraFestiva || 11.60));
 
         const adj = Number(datos.manualAdjustment || 0);
-        const finalOrd = Math.max(0, redondearLocal(resumen.extraHours + adj));
+        const finalOrd = Math.max(0, redondearLocal((resumen.extraHours || 0) + adj));
         const finalFest = redondearLocal(resumen.workedFestiveHours || 0);
         const compOrd = redondear2DecLocal(finalOrd * pNorm);
         const compFest = redondear2DecLocal(finalFest * pFest);
@@ -698,15 +835,15 @@
           contractHoursBase: resumen.contractHoursBase,
           giorniLavorativiBase: resumen.giorniLavorativiBase || 6,
           oreGiornaliereBase: resumen.oreGiornaliereBase,
-          festivosDeduction: resumen.festivosDeduction,
-          festivosCount: resumen.festivosCount,
-          festivos: resumen.festivos,
-          workedHours: resumen.workedHours,
+          festivosDeduction: resumen.festivosDeduction || 0,
+          festivosCount: resumen.festivosCount || 0,
+          festivos: resumen.festivos || [],
+          workedHours: resumen.workedHours || 0,
           workedFestiveHours: finalFest,
           saldoHorasAnterior: resumen.saldoHorasAnterior || 0,
-          saldoPeriodo: resumen.saldoPeriodo,
-          saldoTotalAcumulado: resumen.saldoTotalAcumulado,
-          automaticExtraHours: resumen.extraHours,
+          saldoPeriodo: resumen.saldoPeriodo || 0,
+          saldoTotalAcumulado: resumen.saldoTotalAcumulado || 0,
+          automaticExtraHours: resumen.extraHours || 0,
           manualAdjustment: adj,
           finalExtraHours: finalOrd,
           pricePerHour: pNorm,
@@ -719,7 +856,7 @@
           createdAt: new Date().toISOString()
         };
 
-        const saldoRestante = redondearLocal((resumen.saldoTotalAcumulado || 0) + adj - finalOrd);
+        const saldoRestante = redondearLocal(((resumen.saldoTotalAcumulado || 0) + adj) - finalOrd);
         compObj.saldoRestante = saldoRestante;
 
         const compensos = getLocalJson(STORAGE_KEYS.COMPENSOS, []);
@@ -729,7 +866,8 @@
         emp.saldoHorasAnterior = saldoRestante;
         setLocalJson(STORAGE_KEYS.EMPLEADOS, emps);
 
-        const enlaces = getLocalJson(STORAGE_KEYS.ENLACES, []);
+        const baseUrl = getBaseUrlLocal();
+        const diasVal = Number(datos.validDays || 15);
         const enlaceObj = {
           id: generarIdLocal(),
           token: token,
@@ -743,13 +881,13 @@
           phone: emp.phone,
           active: true,
           createdAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 15 * 86400000).toISOString()
+          expiresAt: new Date(Date.now() + diasVal * 86400000).toISOString(),
+          url: baseUrl + 'view.html?page=view_compensation&token=' + encodeURIComponent(token)
         };
+
+        const enlaces = getLocalJson(STORAGE_KEYS.ENLACES, []);
         enlaces.push(enlaceObj);
         setLocalJson(STORAGE_KEYS.ENLACES, enlaces);
-
-        const baseUrl = getBaseUrlLocal();
-        enlaceObj.url = baseUrl + 'view.html?page=view_compensation&token=' + encodeURIComponent(token);
 
         return { ok: true, compensacion: compObj, enlace: enlaceObj };
       }
