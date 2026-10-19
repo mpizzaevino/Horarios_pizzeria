@@ -418,7 +418,7 @@
             if (!excepcionFila) {
               for (var eIdx = 0; eIdx < cal.excepciones.length; eIdx++) {
                 var ex = cal.excepciones[eIdx];
-                if (ex.turno === franja.key && ex.tipo === 'diasemana' && ex.valor === diaNom) {
+                if (ex.turno === franja.key && ex.tipo === 'diasemana' && ex.valor === nombreDia) {
                   excepcionFila = ex;
                   break;
                 }
@@ -988,6 +988,11 @@
       if (d) {
         try {
           var jsonStr = b64DecodeUnicodeView(d);
+          // Reparar JSON corrupto si procede de enlaces con formato anómalo
+          jsonStr = jsonStr.replace(/"necesidades"\s*:\s*\{([^}]+)\}/g, function(match, inner) {
+            return '"necesidades":{' + inner.replace(/"(PIZZERIA|COCINA|SALA)"\s*,\s*"?(\d+)"?/g, '"$1":$2') + '}';
+          });
+          jsonStr = jsonStr.replace(/\}\}\}\}\]/g, '}}}]');
           var datosDirectos = JSON.parse(jsonStr);
           if (datosDirectos) {
             if (datosDirectos.t === 'h' || datosDirectos.t === 'c') {

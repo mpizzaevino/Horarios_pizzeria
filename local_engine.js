@@ -742,7 +742,16 @@
             fe: cal.festivos || [],
             tu: cal.turnos || null,
             ta: cal.turnosActivosPorDia || null,
-            ex: cal.excepciones || null
+            ex: (cal.excepciones || []).map(function(exc) {
+              // Sanificar necesidades para evitar JSON corrupto
+              var excCopy = JSON.parse(JSON.stringify(exc));
+              if (excCopy.necesidades) {
+                Object.keys(excCopy.necesidades).forEach(function(rol) {
+                  excCopy.necesidades[rol] = Number(excCopy.necesidades[rol]) || 0;
+                });
+              }
+              return excCopy;
+            }) || null
           },
           em: empsVis.map(function (e) {
             return [e.id, e.name, e.dept || '', Number(e.hours || 0)];
