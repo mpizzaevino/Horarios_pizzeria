@@ -967,7 +967,7 @@
         </div>
 
         <div class="tarjeta">
-          <div class="rejilla">
+          <div class="rejilla-3">
             <label class="campo">
               Nombre identificativo
               <select id="calNombrePreset" onchange="cambiarPresetNombreUI()"></select>
@@ -988,12 +988,6 @@
               <input id="calHasta" type="date"
                 onchange="sincronizarAirbnbConInputs(); renderizarMiniCalendarioCierresUI();">
             </label>
-
-            <div style="display:flex; align-items:end;">
-              <button class="boton boton-principal" style="width:100%;" onclick="generarCalendarioUI()">
-                Generar horario base
-              </button>
-            </div>
           </div>
 
           <!-- F6: WIDGET SELECCIÓN INTERVALO FECHAS ESTILO AIRBNB -->
@@ -1400,6 +1394,19 @@
               Excepciones activas que se aplicarán al generar el calendario:
             </div>
             <div id="listaExcepciones"></div>
+          </div>
+        </div>
+
+        <!-- ACCIÓN PRINCIPAL DE GENERACIÓN AL FINAL DE TODOS LOS CAMPOS -->
+        <div class="tarjeta" style="margin-top:20px; margin-bottom:24px; background:linear-gradient(135deg, #fffaf5 0%, #fef3e2 100%); border:2px solid #e2cbba; text-align:center; padding:22px; border-radius:10px;">
+          <div style="max-width:650px; margin:0 auto;">
+            <h3 style="color:var(--vino); margin-bottom:6px; font-size:18px;">🚀 ¿Todo configurado?</h3>
+            <p class="texto-gris" style="font-size:13px; margin-bottom:14px;">
+              Una vez completadas las fechas, cierres, festivos, turnos activos, necesidades de roles y excepciones, pulsa aquí para generar el calendario:
+            </p>
+            <button class="boton boton-principal" style="font-size:16px; padding:12px 36px; box-shadow:0 4px 14px rgba(139,38,53,0.25);" onclick="generarCalendarioUI()">
+              📅 Generar horario base
+            </button>
           </div>
         </div>
 
