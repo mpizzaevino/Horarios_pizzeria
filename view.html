@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <base target="_top">
@@ -406,6 +406,34 @@
           var inicio = infoTurno.inicio || franja.defaultInicio;
           var fin = infoTurno.fin || franja.defaultFin;
 
+          var excepcionFila = null;
+          if (Array.isArray(cal.excepciones)) {
+            for (var eIdx = 0; eIdx < cal.excepciones.length; eIdx++) {
+              var ex = cal.excepciones[eIdx];
+              if (ex.turno === franja.key && ex.tipo === 'fecha' && ex.valor === fecha) {
+                excepcionFila = ex;
+                break;
+              }
+            }
+            if (!excepcionFila) {
+              for (var eIdx = 0; eIdx < cal.excepciones.length; eIdx++) {
+                var ex = cal.excepciones[eIdx];
+                if (ex.turno === franja.key && ex.tipo === 'diasemana' && ex.valor === diaNom) {
+                  excepcionFila = ex;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (excepcionFila && excepcionFila.horarios) {
+            var hRolRef = excepcionFila.horarios.COCINA || excepcionFila.horarios.PIZZERIA || excepcionFila.horarios.SALA;
+            if (hRolRef && hRolRef.inicio && hRolRef.fin) {
+              inicio = hRolRef.inicio;
+              fin = hRolRef.fin;
+            }
+          }
+
           var aParts = String(inicio).split(':');
           var bParts = String(fin).split(':');
           var mA = Number(aParts[0]) * 60 + Number(aParts[1] || 0);
@@ -448,14 +476,17 @@
               }
               var emp = emps.find(function(e) { return e.id === a.employeeId; });
               if (emp) {
-                var depts = (Array.isArray(emp.depts) && emp.depts.length) ? emp.depts : [emp.dept];
-                return depts.indexOf(rol) >= 0;
+                // FIX-BUG1: Para asignaciones legacy sin a.role, asociar solo a su departamento principal
+                return (emp.dept || '').toUpperCase() === rol;
               }
               return false;
             });
 
             var necesidadTurno = (cal.necesidades && cal.necesidades[franja.key]) || {};
             var cantidadNecesaria = Number(necesidadTurno[rol] || 0);
+            if (excepcionFila && excepcionFila.necesidades && excepcionFila.necesidades[rol] !== undefined && excepcionFila.necesidades[rol] !== null) {
+              cantidadNecesaria = Number(excepcionFila.necesidades[rol]);
+            }
 
             if (cantidadNecesaria > 0 && empsRol.length < cantidadNecesaria) {
               if (empsRol.length === 0) {

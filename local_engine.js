@@ -328,6 +328,68 @@
     };
   }
 
+  function resolverHorariosEfectivosLocal(horariosRolesBase, necesidadesBase, claveTurno, fecha, nombreDia, excepciones) {
+    if (!Array.isArray(excepciones) || !excepciones.length) {
+      return {
+        horarios: (horariosRolesBase && horariosRolesBase[claveTurno]) || {},
+        necesidades: (necesidadesBase && necesidadesBase[claveTurno]) || {}
+      };
+    }
+
+    let excepcionAplicable = null;
+    // Prioridad 1: fecha exacta
+    for (let i = 0; i < excepciones.length; i++) {
+      const ex = excepciones[i];
+      if (ex.turno !== claveTurno) continue;
+      if (ex.tipo === 'fecha' && ex.valor === fecha) {
+        excepcionAplicable = ex;
+        break;
+      }
+    }
+
+    // Prioridad 2: día de la semana
+    if (!excepcionAplicable) {
+      for (let i = 0; i < excepciones.length; i++) {
+        const ex = excepciones[i];
+        if (ex.turno !== claveTurno) continue;
+        if (ex.tipo === 'diasemana' && (ex.valor === nombreDia || String(ex.valor).toLowerCase() === String(nombreDia).toLowerCase())) {
+          excepcionAplicable = ex;
+          break;
+        }
+      }
+    }
+
+    const horariosBase = (horariosRolesBase && horariosRolesBase[claveTurno]) || {};
+    const necesBase = (necesidadesBase && necesidadesBase[claveTurno]) || {};
+
+    if (!excepcionAplicable) {
+      return {
+        horarios: horariosBase,
+        necesidades: necesBase
+      };
+    }
+
+    const horariosEfectivos = Object.assign({}, horariosBase);
+    if (excepcionAplicable.horarios) {
+      Object.keys(excepcionAplicable.horarios).forEach(function(rol) {
+        if (excepcionAplicable.horarios[rol]) {
+          horariosEfectivos[rol] = Object.assign({}, horariosBase[rol] || {}, excepcionAplicable.horarios[rol]);
+        }
+      });
+    }
+
+    const necesEfectivas = Object.assign({}, necesBase);
+    if (excepcionAplicable.necesidades) {
+      Object.keys(excepcionAplicable.necesidades).forEach(function(rol) {
+        if (excepcionAplicable.necesidades[rol] !== undefined && excepcionAplicable.necesidades[rol] !== null) {
+          necesEfectivas[rol] = Number(excepcionAplicable.necesidades[rol]);
+        }
+      });
+    }
+
+    return { horarios: horariosEfectivos, necesidades: necesEfectivas };
+  }
+
   function calcularResumenCalendarioLocal(calId) {
     const cals = getLocalJson(STORAGE_KEYS.CALENDARIOS, []);
     const cal = cals.find(function (c) { return c.id === calId; });
@@ -592,26 +654,46 @@
             }
 
             const turnoObj = turnos[cTurno];
-            const nec = (datos.necesidades && datos.necesidades[cTurno]) || { COCINA: 1, PIZZERIA: 1, SALA: 2 };
+            // FIX-BUG2 + FIXES 3&4: Resolver horarios y necesidades efectivos (roles + excepciones)
+            const efectivos = resolverHorariosEfectivosLocal(datos.horariosRoles, datos.necesidades, cTurno, fStr, diaNom, datos.excepciones);
+            const nec = efectivos.necesidades || { COCINA: 1, PIZZERIA: 1, SALA: 2 };
+            const horariosRolesFranja = efectivos.horarios || {};
 
-            const hIni = Number(turnoObj.inicio.split(':')[0]) + Number(turnoObj.inicio.split(':')[1]) / 60;
-            let hFin = Number(turnoObj.fin.split(':')[0]) + Number(turnoObj.fin.split(':')[1]) / 60;
-            if (hFin < hIni) hFin += 24;
-            const duracion = redondearLocal(hFin - hIni);
+            ['COCINA', 'PIZZERIA', 'SALA'].forEach(function (rol) {
+              const cant = Number(nec[rol] || 0);
+              if (!cant) return;
 
-            Object.keys(nec).forEach(function (rol) {
-              const cant = nec[rol] || 0;
+              // FIX-BUG2: Obtener inicio y fin específicos del rol
+              const rolTiempos = horariosRolesFranja[rol] || {};
+              const inicioRol = rolTiempos.inicio || turnoObj.inicio;
+              const finRol    = rolTiempos.fin    || turnoObj.fin;
+              const hIni = Number(inicioRol.split(':')[0]) + Number(inicioRol.split(':')[1]) / 60;
+              let hFin = Number(finRol.split(':')[0]) + Number(finRol.split(':')[1]) / 60;
+              if (hFin < hIni) hFin += 24;
+              const duracion = redondearLocal(hFin - hIni);
+
+              // FIX-BUG1: El empleado no puede haber sido asignado ya a esta misma fecha y franja (sea cual sea el rol)
               const eleggibili = emps.filter(function (e) {
                 const depts = Array.isArray(e.depts) ? e.depts : [e.dept];
                 const matchesRole = depts.indexOf(rol) >= 0;
                 const matchesDay = !(e.exclDay && e.exclDay.indexOf(diaNom) >= 0);
                 const matchesShift = !(e.exclShift && (e.exclShift.indexOf(turnoObj.nombre) >= 0 || e.exclShift.indexOf(cTurno) >= 0));
-                return matchesRole && matchesDay && matchesShift;
+                const yaAsignadoEnTurno = asignaciones.some(function (a) {
+                  return a.employeeId === e.id && a.date === fStr && a.shiftKey === cTurno;
+                });
+                return matchesRole && matchesDay && matchesShift && !yaAsignadoEnTurno;
               });
 
               let asignados = 0;
               for (let i = 0; i < cant; i++) {
-                const emp = eleggibili[(idx + i) % Math.max(1, eleggibili.length)];
+                if (!eleggibili.length) break;
+                // Seleccionar un empleado elegible no asignado aún a este turno
+                const emp = eleggibili.find(function(candidato) {
+                  return !asignaciones.some(function(a) {
+                    return a.employeeId === candidato.id && a.date === fStr && a.shiftKey === cTurno;
+                  });
+                });
+
                 if (emp) {
                   asignaciones.push({
                     id: generarIdLocal(),
@@ -620,8 +702,8 @@
                     dayName: diaNom,
                     shiftKey: cTurno,
                     shiftName: turnoObj.nombre,
-                    start: turnoObj.inicio,
-                    end: turnoObj.fin,
+                    start: inicioRol,
+                    end: finRol,
                     hours: duracion,
                     role: rol
                   });
@@ -640,6 +722,18 @@
             });
           });
         });
+
+        // FIX-BUG1: Deduplicación estricta de seguridad
+        const vistas = {};
+        for (let idx = asignaciones.length - 1; idx >= 0; idx--) {
+          const a = asignaciones[idx];
+          const clave = a.employeeId + '|' + a.date + '|' + (a.shiftKey || a.shiftName || '');
+          if (vistas[clave]) {
+            asignaciones.splice(idx, 1);
+          } else {
+            vistas[clave] = true;
+          }
+        }
 
         // F2 / Incidencias de horas extra y déficit por trabajador
         const numSemanas = Math.max(1, fechas.length / 7);
@@ -673,8 +767,10 @@
           hasta: datos.hasta,
           turnos: turnos,
           necesidades: datos.necesidades || {},
+          horariosRoles: datos.horariosRoles || null,
           cierres: datos.cierres || [],
           festivos: datos.festivos || [],
+          excepciones: datos.excepciones || [],
           turnosActivosPorDia: datos.turnosActivosPorDia || {},
           asignaciones: asignaciones,
           incidencias: incidencias,

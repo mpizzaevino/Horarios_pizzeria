@@ -1144,7 +1144,90 @@ function optimizarCompensacionHoras_(asignaciones, empleados, fechas, festivos) 
     if (!asignacionTransferida) break;
   }
 
+  // FIX-BUG1 (post-optimización): eliminar duplicados residuales por empleado+fecha+shiftKey
+  // que pudieran haberse generado por edge-cases del algoritmo de compensación
+  const asignacionesVistas = {};
+  for (let idx = asignaciones.length - 1; idx >= 0; idx--) {
+    const a = asignaciones[idx];
+    const clave = a.employeeId + '|' + a.date + '|' + (a.shiftKey || a.shiftName || '');
+    if (asignacionesVistas[clave]) {
+      asignaciones.splice(idx, 1); // eliminar duplicado
+    } else {
+      asignacionesVistas[clave] = true;
+    }
+  }
+
   return reasignacionesHechas;
+}
+
+/* =========================
+   FIX-BUG2 + FIXES 3&4: Normalización de horariosRoles y soporte de excepciones
+   ========================= */
+
+// Obtiene los horarios de roles efectivos para una franja, fecha y día de semana,
+// aplicando las excepciones configuradas (por día de semana o fecha específica).
+function resolverHorariosEfectivos_(horariosRolesBase, necesidadesBase, claveTurno, fecha, nombreDia, excepciones) {
+  if (!Array.isArray(excepciones) || !excepciones.length) {
+    return {
+      horarios: (horariosRolesBase && horariosRolesBase[claveTurno]) || {},
+      necesidades: (necesidadesBase && necesidadesBase[claveTurno]) || {}
+    };
+  }
+
+  let excepcionAplicable = null;
+
+  // Prioridad 1: fecha específica exacta
+  for (let i = 0; i < excepciones.length; i++) {
+    const ex = excepciones[i];
+    if (ex.turno !== claveTurno) continue;
+    if (ex.tipo === 'fecha' && ex.valor === fecha) {
+      excepcionAplicable = ex;
+      break;
+    }
+  }
+
+  // Prioridad 2: día de semana
+  if (!excepcionAplicable) {
+    for (let i = 0; i < excepciones.length; i++) {
+      const ex = excepciones[i];
+      if (ex.turno !== claveTurno) continue;
+      if (ex.tipo === 'diasemana' && ex.valor === nombreDia) {
+        excepcionAplicable = ex;
+        break;
+      }
+    }
+  }
+
+  if (!excepcionAplicable) {
+    return {
+      horarios: (horariosRolesBase && horariosRolesBase[claveTurno]) || {},
+      necesidades: (necesidadesBase && necesidadesBase[claveTurno]) || {}
+    };
+  }
+
+  // Fusionar la excepción con la configuración base
+  const horariosBase = (horariosRolesBase && horariosRolesBase[claveTurno]) || {};
+  const necesBase = (necesidadesBase && necesidadesBase[claveTurno]) || {};
+
+  const horariosEfectivos = Object.assign({}, horariosBase);
+  if (excepcionAplicable.horarios) {
+    Object.keys(excepcionAplicable.horarios).forEach(function(rol) {
+      if (excepcionAplicable.horarios[rol]) {
+        horariosEfectivos[rol] = Object.assign({}, horariosBase[rol] || {}, excepcionAplicable.horarios[rol]);
+      }
+    });
+  }
+
+  const necesEfectivas = Object.assign({}, necesBase);
+  if (excepcionAplicable.necesidades) {
+    Object.keys(excepcionAplicable.necesidades).forEach(function(rol) {
+      if (excepcionAplicable.necesidades[rol] !== undefined && excepcionAplicable.necesidades[rol] !== null) {
+        necesEfectivas[rol] = Number(excepcionAplicable.necesidades[rol]);
+      }
+    });
+  }
+
+  return { horarios: horariosEfectivos, necesidades: necesEfectivas };
 }
 
 function generarCalendario(tokenSesion, datos) {
@@ -1165,6 +1248,8 @@ function generarCalendario(tokenSesion, datos) {
   const cierres = Array.isArray(datos.cierres) ? datos.cierres : [];
   const festivos = Array.isArray(datos.festivos) ? datos.festivos : [];
   const numFestivos = festivos.length;
+  // Excepciones por día de semana o fecha específica (Fixes 3 & 4)
+  const excepciones = Array.isArray(datos.excepciones) ? datos.excepciones : [];
   // F1: configuración de franjas activas/inactivas por día de la semana, ya normalizada.
   const turnosActivosPorDia = normalizarTurnosActivosPorDia_(datos.turnosActivosPorDia);
   const fechas = obtenerFechasPeriodo_(desde, hasta);
@@ -1199,15 +1284,16 @@ function generarCalendario(tokenSesion, datos) {
       if (!franjaActivaEnDia_(turnosActivosPorDia, nombreDia, claveTurno)) return;
 
       const nombreTurno = turno.nombre || claveTurno;
-      const necesidadTurno = necesidades[claveTurno] || {};
-      // F-ROLES: horarios específicos por rol para esta franja
-      const horariosRolesFranja = (datos.horariosRoles && datos.horariosRoles[claveTurno]) || {};
+      // FIX-BUG2 + FIXES3&4: Resolver horarios y necesidades efectivos aplicando excepciones
+      const efectivos = resolverHorariosEfectivos_(datos.horariosRoles, necesidades, claveTurno, fecha, nombreDia, excepciones);
+      const necesidadTurno = efectivos.necesidades;
+      const horariosRolesFranja = efectivos.horarios;
 
       ['COCINA', 'PIZZERIA', 'SALA'].forEach(function(rol) {
         const cantidadNecesaria = Number(necesidadTurno[rol] || 0);
         if (!cantidadNecesaria) return;
 
-        // Usar horario específico del rol si existe, sino el horario global de la franja
+        // FIX-BUG2: Usar horario específico del rol (garantizado por resolverHorariosEfectivos_)
         const rolTiempos = horariosRolesFranja[rol] || {};
         const inicioRol = rolTiempos.inicio || turno.inicio;
         const finRol    = rolTiempos.fin    || turno.fin;
@@ -1384,6 +1470,7 @@ function generarCalendario(tokenSesion, datos) {
     turnos: turnos,
     necesidades: necesidades,
     horariosRoles: datos.horariosRoles || null,
+    excepciones: excepciones,
     cierres: cierres,
     festivos: festivos,
     turnosActivosPorDia: turnosActivosPorDia,

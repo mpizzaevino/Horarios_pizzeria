@@ -1278,6 +1278,131 @@
           </div>
         </div>
 
+        <!-- F-EXCEPCIONES: Personal y Horarios especiales por día de semana o fecha específica -->
+        <div class="tarjeta" style="margin-top:18px; margin-bottom:18px; background:#fffdfa; border:1px solid #ebd9bf;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px;">
+            <div>
+              <h3 style="margin-bottom:4px; color:#854d0e;">⚙️ Excepciones de Horarios y Personal (Días Específicos o Días de la Semana)</h3>
+              <p class="texto-gris" style="font-size:12px; margin:0; max-width:800px;">
+                Personaliza el número de personas o los horarios de entrada/salida para días concretos (ej. <strong>todos los Sábados</strong> o una <strong>fecha específica como 31/10/2026</strong>), si difieren del horario habitual de Mañana, Comida o Cena.
+              </p>
+            </div>
+            <div id="contadorExcepcionesBadge" style="background:#fef3c7; color:#92400e; font-weight:bold; font-size:12px; padding:3px 8px; border-radius:12px; border:1px solid #fde68a;">
+              (0)
+            </div>
+          </div>
+
+          <div style="background:#fff; border:1px solid #f1e4d3; border-radius:8px; padding:12px; margin-top:12px;">
+            <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+              <div>
+                <label style="display:block; font-size:11px; font-weight:600; color:#78350f; margin-bottom:4px;">Tipo de regla</label>
+                <select id="excepcionTipo" onchange="cambiarTipoExcepcionUI()" style="font-size:13px; padding:5px 8px; border:1px solid #d4c3b3; border-radius:6px; background:#fff;">
+                  <option value="diasemana">📅 Día de la semana (recurrente)</option>
+                  <option value="fecha">🗓️ Fecha específica del mes</option>
+                </select>
+              </div>
+
+              <div id="contenedorExcepcionDiaSemana">
+                <label style="display:block; font-size:11px; font-weight:600; color:#78350f; margin-bottom:4px;">Día de la semana</label>
+                <select id="excepcionDiaSemana" style="font-size:13px; padding:5px 8px; border:1px solid #d4c3b3; border-radius:6px; background:#fff;">
+                  <option value="Sábado" selected>Sábado</option>
+                  <option value="Domingo">Domingo</option>
+                  <option value="Viernes">Viernes</option>
+                  <option value="Jueves">Jueves</option>
+                  <option value="Miércoles">Miércoles</option>
+                  <option value="Martes">Martes</option>
+                  <option value="Lunes">Lunes</option>
+                </select>
+              </div>
+
+              <div id="contenedorExcepcionFecha" style="display:none;">
+                <label style="display:block; font-size:11px; font-weight:600; color:#78350f; margin-bottom:4px;">Fecha específica</label>
+                <input type="date" id="excepcionFecha" style="font-size:13px; padding:4px 8px; border:1px solid #d4c3b3; border-radius:6px; background:#fff;">
+              </div>
+
+              <div>
+                <label style="display:block; font-size:11px; font-weight:600; color:#78350f; margin-bottom:4px;">Turno a modificar</label>
+                <select id="excepcionTurno" onchange="sincronizarCamposExcepcionDesdeBase()" style="font-size:13px; padding:5px 8px; border:1px solid #d4c3b3; border-radius:6px; background:#fff;">
+                  <option value="tarde" selected>Comida</option>
+                  <option value="cena">Cena</option>
+                  <option value="manana">Mañana</option>
+                </select>
+              </div>
+
+              <div>
+                <button type="button" class="boton boton-secundario boton-pequeno" onclick="sincronizarCamposExcepcionDesdeBase()" title="Rellenar con los valores estándar actuales">
+                  📋 Cargar valores base
+                </button>
+              </div>
+            </div>
+
+            <!-- Tabla de configuración de personal y horarios de la excepción -->
+            <div style="margin-top:12px; overflow-x:auto;">
+              <table style="width:100%; font-size:13px; border-collapse:collapse; background:#faf7f2; border:1px solid #ebd9bf; border-radius:6px;">
+                <thead>
+                  <tr style="background:#f5ecdc; border-bottom:1px solid #ebd9bf;">
+                    <th style="text-align:left; padding:6px 8px; font-size:11px; color:#78350f; font-weight:bold;">Rol</th>
+                    <th style="text-align:center; padding:6px 8px; font-size:11px; color:#78350f; font-weight:bold;">N° Empleados necesarios</th>
+                    <th style="text-align:center; padding:6px 8px; font-size:11px; color:#78350f; font-weight:bold;">Hora Entrada</th>
+                    <th style="text-align:center; padding:6px 8px; font-size:11px; color:#78350f; font-weight:bold;">Hora Salida</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr style="border-bottom:1px solid #f0e6d6;">
+                    <td style="padding:6px 8px; font-weight:600;">🍳 Cocina</td>
+                    <td style="padding:6px 8px; text-align:center;">
+                      <input id="exNeedCocina" type="number" min="0" value="1" style="width:54px; padding:3px 6px; border:1px solid #ccc; border-radius:4px; text-align:center;">
+                    </td>
+                    <td style="padding:6px 8px; text-align:center;">
+                      <input id="exCocinaInicio" type="time" value="13:00" style="padding:3px 6px; border:1px solid #ccc; border-radius:4px; font-size:12px;">
+                    </td>
+                    <td style="padding:6px 8px; text-align:center;">
+                      <input id="exCocinaFin" type="time" value="16:30" style="padding:3px 6px; border:1px solid #ccc; border-radius:4px; font-size:12px;">
+                    </td>
+                  </tr>
+                  <tr style="border-bottom:1px solid #f0e6d6;">
+                    <td style="padding:6px 8px; font-weight:600;">🍕 Pizzería</td>
+                    <td style="padding:6px 8px; text-align:center;">
+                      <input id="exNeedPizzeria" type="number" min="0" value="1" style="width:54px; padding:3px 6px; border:1px solid #ccc; border-radius:4px; text-align:center;">
+                    </td>
+                    <td style="padding:6px 8px; text-align:center;">
+                      <input id="exPizzeriaInicio" type="time" value="13:00" style="padding:3px 6px; border:1px solid #ccc; border-radius:4px; font-size:12px;">
+                    </td>
+                    <td style="padding:6px 8px; text-align:center;">
+                      <input id="exPizzeriaFin" type="time" value="16:30" style="padding:3px 6px; border:1px solid #ccc; border-radius:4px; font-size:12px;">
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 8px; font-weight:600;">🛎️ Sala</td>
+                    <td style="padding:6px 8px; text-align:center;">
+                      <input id="exNeedSala" type="number" min="0" value="2" style="width:54px; padding:3px 6px; border:1px solid #ccc; border-radius:4px; text-align:center;">
+                    </td>
+                    <td style="padding:6px 8px; text-align:center;">
+                      <input id="exSalaInicio" type="time" value="13:00" style="padding:3px 6px; border:1px solid #ccc; border-radius:4px; font-size:12px;">
+                    </td>
+                    <td style="padding:6px 8px; text-align:center;">
+                      <input id="exSalaFin" type="time" value="16:30" style="padding:3px 6px; border:1px solid #ccc; border-radius:4px; font-size:12px;">
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="margin-top:12px; display:flex; justify-content:flex-end;">
+              <button type="button" class="boton boton-principal boton-pequeno" onclick="agregarExcepcionUI()">
+                ➕ Guardar esta excepción
+              </button>
+            </div>
+          </div>
+
+          <div style="margin-top:14px;">
+            <div style="font-size:12px; font-weight:bold; color:#78350f; margin-bottom:6px;">
+              Excepciones activas que se aplicarán al generar el calendario:
+            </div>
+            <div id="listaExcepciones"></div>
+          </div>
+        </div>
+
         <div id="zonaCalendario"></div>
 
         <div class="tarjeta">
@@ -1783,6 +1908,7 @@
       calendarios: [],
       cierresPendientes: [],
       festivosPendientes: [],
+      excepcionesPendientes: [],
       enlaces: [],
       plantillas: [],
       ajustes: {
@@ -3209,6 +3335,150 @@
     }
 
     /* ==========================
+       FIXES 3 & 4: GESTIÓN DE EXCEPCIONES DE HORARIOS Y PERSONAL
+       ========================== */
+
+    function cambiarTipoExcepcionUI() {
+      const tipo = document.getElementById('excepcionTipo').value;
+      const contDia = document.getElementById('contenedorExcepcionDiaSemana');
+      const contFecha = document.getElementById('contenedorExcepcionFecha');
+      if (tipo === 'diasemana') {
+        if (contDia) contDia.style.display = 'block';
+        if (contFecha) contFecha.style.display = 'none';
+      } else {
+        if (contDia) contDia.style.display = 'none';
+        if (contFecha) contFecha.style.display = 'block';
+      }
+    }
+
+    function sincronizarCamposExcepcionDesdeBase() {
+      const turno = document.getElementById('excepcionTurno').value;
+      const prefijo = turno === 'manana' ? 'Manana' : (turno === 'tarde' ? 'Tarde' : 'Cena');
+      const prefijoLower = turno;
+
+      // Obtener los valores base de las tablas principales
+      const getVal = function(id) { const el = document.getElementById(id); return el ? el.value : ''; };
+      const setVal = function(id, val) { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
+
+      setVal('exNeedCocina', getVal('need' + prefijo + 'Cocina') || 1);
+      setVal('exNeedPizzeria', getVal('need' + prefijo + 'Pizzeria') || 1);
+      setVal('exNeedSala', getVal('need' + prefijo + 'Sala') || 2);
+
+      setVal('exCocinaInicio', getVal(prefijoLower + 'CocinaInicio') || '13:00');
+      setVal('exCocinaFin', getVal(prefijoLower + 'CocinaFin') || '16:30');
+      setVal('exPizzeriaInicio', getVal(prefijoLower + 'PizzeriaInicio') || '13:00');
+      setVal('exPizzeriaFin', getVal(prefijoLower + 'PizzeriaFin') || '16:30');
+      setVal('exSalaInicio', getVal(prefijoLower + 'SalaInicio') || '13:00');
+      setVal('exSalaFin', getVal(prefijoLower + 'SalaFin') || '16:30');
+    }
+
+    function agregarExcepcionUI() {
+      const tipo = document.getElementById('excepcionTipo').value;
+      const valor = tipo === 'diasemana'
+        ? (document.getElementById('excepcionDiaSemana') ? document.getElementById('excepcionDiaSemana').value : '')
+        : (document.getElementById('excepcionFecha') ? document.getElementById('excepcionFecha').value : '');
+      const turno = document.getElementById('excepcionTurno').value;
+
+      if (!valor) {
+        notificar('Indica el día de la semana o la fecha específica.', 'aviso');
+        return;
+      }
+
+      if (!ESTADO.excepcionesPendientes) ESTADO.excepcionesPendientes = [];
+
+      const getValNum = function(id) { const el = document.getElementById(id); return Number((el && el.value) || 0); };
+      const getValStr = function(id, def) { const el = document.getElementById(id); return (el && el.value) || def; };
+
+      const ex = {
+        id: 'ex_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        tipo: tipo,
+        valor: valor,
+        turno: turno,
+        necesidades: {
+          COCINA: getValNum('exNeedCocina'),
+          PIZZERIA: getValNum('exNeedPizzeria'),
+          SALA: getValNum('exNeedSala')
+        },
+        horarios: {
+          COCINA: {
+            inicio: getValStr('exCocinaInicio', '13:00'),
+            fin: getValStr('exCocinaFin', '16:30')
+          },
+          PIZZERIA: {
+            inicio: getValStr('exPizzeriaInicio', '13:00'),
+            fin: getValStr('exPizzeriaFin', '16:30')
+          },
+          SALA: {
+            inicio: getValStr('exSalaInicio', '13:00'),
+            fin: getValStr('exSalaFin', '16:30')
+          }
+        }
+      };
+
+      // Si ya existía una excepción con idéntica clave tipo+valor+turno, reemplazarla
+      ESTADO.excepcionesPendientes = ESTADO.excepcionesPendientes.filter(function(item) {
+        return !(item.tipo === ex.tipo && item.valor === ex.valor && item.turno === ex.turno);
+      });
+      ESTADO.excepcionesPendientes.push(ex);
+
+      renderizarExcepcionesUI();
+      const descDia = tipo === 'diasemana' ? valor : fechaLegible(valor);
+      const nombreTurno = turno === 'manana' ? 'Mañana' : (turno === 'tarde' ? 'Comida' : 'Cena');
+      notificar('Excepción guardada para ' + descDia + ' (' + nombreTurno + ').', 'ok');
+    }
+
+    function eliminarExcepcionUI(id) {
+      if (!ESTADO.excepcionesPendientes) return;
+      ESTADO.excepcionesPendientes = ESTADO.excepcionesPendientes.filter(function(ex) {
+        return ex.id !== id;
+      });
+      renderizarExcepcionesUI();
+      notificar('Excepción eliminada.', 'info');
+    }
+
+    function renderizarExcepcionesUI() {
+      const zona = document.getElementById('listaExcepciones');
+      const contadorBadge = document.getElementById('contadorExcepcionesBadge');
+      if (!zona) return;
+
+      const items = ESTADO.excepcionesPendientes || [];
+      if (contadorBadge) {
+        contadorBadge.textContent = '(' + items.length + ')';
+      }
+
+      if (!items.length) {
+        zona.innerHTML = '<p class="texto-gris" style="font-size:12px; margin:4px 0; font-style:italic;">No hay excepciones configuradas. Todos los días seguirán los horarios y necesidades habituales.</p>';
+        return;
+      }
+
+      const nombresTurnos = { manana: 'Mañana', tarde: 'Comida', cena: 'Cena' };
+
+      zona.innerHTML = items.map(function(ex) {
+        const titulo = ex.tipo === 'diasemana' ? ('📅 Cada ' + ex.valor) : ('🗓️ ' + fechaLegible(ex.valor));
+        const turnoNom = nombresTurnos[ex.turno] || ex.turno;
+
+        const rolesArr = ['COCINA', 'PIZZERIA', 'SALA'];
+        const detalleRoles = rolesArr.map(function(rol) {
+          const n = ex.necesidades ? ex.necesidades[rol] : 0;
+          const h = (ex.horarios && ex.horarios[rol]) ? (ex.horarios[rol].inicio + ' - ' + ex.horarios[rol].fin) : '';
+          const icon = rol === 'COCINA' ? '🍳' : (rol === 'PIZZERIA' ? '🍕' : '🛎️');
+          return '<span style="display:inline-block; background:#fff; border:1px solid #ebd9bf; border-radius:4px; padding:2px 6px; font-size:11px; margin-right:4px;">' +
+            icon + ' ' + rol + ': <strong>' + n + ' pers.</strong> (' + h + ')</span>';
+        }).join('');
+
+        return (
+          '<div style="display:flex; justify-content:space-between; align-items:center; background:#faf6ef; border:1px solid #ebd9bf; border-radius:6px; padding:6px 10px; margin-bottom:6px; flex-wrap:wrap; gap:6px;">' +
+            '<div>' +
+              '<strong>' + titulo + '</strong> &mdash; <span class="etiqueta etiqueta-vino" style="font-size:11px;">' + turnoNom + '</span>' +
+              '<div style="margin-top:4px;">' + detalleRoles + '</div>' +
+            '</div>' +
+            '<button type="button" class="boton boton-peligro boton-pequeno" style="padding:2px 8px; font-size:11px;" onclick="eliminarExcepcionUI(\'' + ex.id + '\')">🗑️ Quitar</button>' +
+          '</div>'
+        );
+      }).join('');
+    }
+
+    /* ==========================
        F1: TURNOS ACTIVOS POR DÍA DE LA SEMANA
        ========================== */
 
@@ -3300,6 +3570,7 @@
           }
         },
         horariosRoles: hr,
+        excepciones: (ESTADO.excepcionesPendientes || []).slice(),
         turnosActivosPorDia: obtenerTurnosActivosPorDia()
       };
     }
@@ -3345,6 +3616,13 @@
       setVal('cenaPizzeriaFin',      hr.cena   && hr.cena.PIZZERIA   ? hr.cena.PIZZERIA.fin        : t.cena   && t.cena.fin);
       setVal('cenaSalaInicio',       hr.cena   && hr.cena.SALA       ? hr.cena.SALA.inicio         : t.cena   && t.cena.inicio);
       setVal('cenaSalaFin',          hr.cena   && hr.cena.SALA       ? hr.cena.SALA.fin            : t.cena   && t.cena.fin);
+
+      if (Array.isArray(plantilla.excepciones)) {
+        ESTADO.excepcionesPendientes = plantilla.excepciones.slice();
+      } else {
+        ESTADO.excepcionesPendientes = [];
+      }
+      renderizarExcepcionesUI();
 
       if (plantilla.turnosActivosPorDia) {
         renderizarTurnosActivosUI(plantilla.turnosActivosPorDia);
@@ -3573,6 +3851,7 @@
         horariosRoles: hr,
         cierres: ESTADO.cierresPendientes.slice(),
         festivos: (ESTADO.festivosPendientes || []).slice(),
+        excepciones: (ESTADO.excepcionesPendientes || []).slice(),
         turnosActivosPorDia: obtenerTurnosActivosPorDia()
       };
     }
@@ -3594,6 +3873,7 @@
 
         renderizarDiasCierreUI();
         renderizarDiasFestivosUI();
+        renderizarExcepcionesUI();
         renderizarMiniCalendarioCierresUI();
 
         // F1: se restauran todas las franjas a activas para el próximo calendario a crear.
@@ -3753,8 +4033,40 @@
         FRANJAS.forEach(function (franja, rIdx) {
           const infoTurno = turnosDef[franja.key] || {};
           const nombreTurno = infoTurno.nombre || franja.defaultNombre;
-          const inicio = infoTurno.inicio || franja.defaultInicio;
-          const fin = infoTurno.fin || franja.defaultFin;
+          let inicio = infoTurno.inicio || franja.defaultInicio;
+          let fin = infoTurno.fin || franja.defaultFin;
+
+          // FIXES 3 & 4: Comprobar si hay una excepción aplicable para esta franja y fecha/día
+          let excepcionFila = null;
+          if (Array.isArray(calendario.excepciones)) {
+            // Prioridad 1: fecha exacta
+            for (let eIdx = 0; eIdx < calendario.excepciones.length; eIdx++) {
+              const ex = calendario.excepciones[eIdx];
+              if (ex.turno === franja.key && ex.tipo === 'fecha' && ex.valor === fechaISO) {
+                excepcionFila = ex;
+                break;
+              }
+            }
+            // Prioridad 2: día de la semana
+            if (!excepcionFila) {
+              for (let eIdx = 0; eIdx < calendario.excepciones.length; eIdx++) {
+                const ex = calendario.excepciones[eIdx];
+                if (ex.turno === franja.key && ex.tipo === 'diasemana' && ex.valor === nombreDia) {
+                  excepcionFila = ex;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (excepcionFila && excepcionFila.horarios) {
+            const hRolRef = excepcionFila.horarios.COCINA || excepcionFila.horarios.PIZZERIA || excepcionFila.horarios.SALA;
+            if (hRolRef && hRolRef.inicio && hRolRef.fin) {
+              inicio = hRolRef.inicio;
+              fin = hRolRef.fin;
+            }
+          }
+
           const duracion = calcularHorasEntre(inicio, fin, 0);
           const duracionFmt = formatearHorasHHMMSS(duracion);
           const estaActivo = cfgDia[franja.key] !== false;
@@ -3791,14 +4103,19 @@
               }
               const emp = (ESTADO.empleados || []).find(function (e) { return e.id === a.employeeId; });
               if (emp) {
-                const depts = (Array.isArray(emp.depts) && emp.depts.length) ? emp.depts : [emp.dept];
-                return depts.indexOf(rol) >= 0;
+                // FIX-BUG1: Para asignaciones legacy sin a.role, asociar solo a su departamento principal
+                return (emp.dept || '').toUpperCase() === rol;
               }
               return false;
             });
 
             const necesidadTurno = (calendario.necesidades && calendario.necesidades[franja.key]) || {};
-            const cantidadNecesaria = Number(necesidadTurno[rol] || 0);
+            let cantidadNecesaria = Number(necesidadTurno[rol] || 0);
+
+            // FIX-4: Si hay excepción aplicable para esta franja y fecha/día, tomar su cantidad necesaria
+            if (excepcionFila && excepcionFila.necesidades && excepcionFila.necesidades[rol] !== undefined && excepcionFila.necesidades[rol] !== null) {
+              cantidadNecesaria = Number(excepcionFila.necesidades[rol]);
+            }
 
             if (cantidadNecesaria > 0 && empsRol.length < cantidadNecesaria) {
               if (empsRol.length === 0) {
@@ -5366,8 +5683,10 @@
     window.addEventListener('DOMContentLoaded', function () {
       ESTADO.cierresPendientes = [];
       ESTADO.festivosPendientes = [];
+      ESTADO.excepcionesPendientes = [];
       renderizarDiasCierreUI();
       renderizarDiasFestivosUI();
+      renderizarExcepcionesUI();
       renderizarMiniCalendarioCierresUI();
 
       // F6: selector de rango de fechas estilo Airbnb
