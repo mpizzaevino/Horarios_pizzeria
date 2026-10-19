@@ -1762,29 +1762,42 @@
       </div>
 
       <div class="rejilla-3">
-        <label class="campo">
-          Preferencias de turno
-          <select id="empPreferencias" multiple>
+        <div class="campo">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <label for="empPreferencias" style="font-weight:600;">Preferencias de turno</label>
+            <button type="button" class="boton-link" style="font-size:11px; color:var(--vino); text-decoration:underline; border:none; background:transparent; cursor:pointer;" onclick="resetearPreferenciasTurno('empPreferencias')">🔄 Restablecer "Cualquiera"</button>
+          </div>
+          <select id="empPreferencias" multiple style="min-height:75px;" onchange="actualizarResumenExclusionesModal()">
             <option value="Cualquiera">Cualquiera</option>
             <option value="Mañana">Mañana</option>
             <option value="Comida">Comida</option>
             <option value="Cena">Cena</option>
           </select>
           <span class="nota">Mantén Ctrl o Cmd para elegir varias opciones.</span>
-        </label>
+        </div>
 
-        <label class="campo">
-          Exclusiones de turno
-          <select id="empExclTurnos" multiple>
+        <div class="campo">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <label for="empExclTurnos" style="font-weight:600;">Exclusiones de turno</label>
+            <button type="button" class="boton-link" style="font-size:11px; color:var(--rojo); font-weight:bold; text-decoration:underline; border:none; background:transparent; cursor:pointer;" onclick="deseleccionarSelectMultiple('empExclTurnos')">❌ Deseleccionar todo (sin exclusiones)</button>
+          </div>
+          <select id="empExclTurnos" multiple style="min-height:75px;" onchange="actualizarResumenExclusionesModal()">
             <option value="Mañana">Mañana</option>
             <option value="Comida">Comida</option>
             <option value="Cena">Cena</option>
           </select>
-        </label>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+            <span class="nota">Mantén Ctrl/Cmd para selección múltiple.</span>
+            <span id="badgeExclTurnos" style="font-size:11px; font-weight:bold; color:var(--vino);"></span>
+          </div>
+        </div>
 
-        <label class="campo">
-          Exclusiones de días
-          <select id="empExclDias" multiple>
+        <div class="campo">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <label for="empExclDias" style="font-weight:600;">Exclusiones de días</label>
+            <button type="button" class="boton-link" style="font-size:11px; color:var(--rojo); font-weight:bold; text-decoration:underline; border:none; background:transparent; cursor:pointer;" onclick="deseleccionarSelectMultiple('empExclDias')">❌ Deseleccionar todo (sin exclusiones)</button>
+          </div>
+          <select id="empExclDias" multiple style="min-height:130px;" onchange="actualizarResumenExclusionesModal()">
             <option value="Lunes">Lunes</option>
             <option value="Martes">Martes</option>
             <option value="Miércoles">Miércoles</option>
@@ -1793,7 +1806,11 @@
             <option value="Sábado">Sábado</option>
             <option value="Domingo">Domingo</option>
           </select>
-        </label>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+            <span class="nota">Mantén Ctrl/Cmd para selección múltiple.</span>
+            <span id="badgeExclDias" style="font-size:11px; font-weight:bold; color:var(--vino);"></span>
+          </div>
+        </div>
       </div>
 
       <div style="background:#fffaf0; border:1px solid #e7dfd5; border-radius:8px; padding:12px; margin-top:14px;">
@@ -2437,6 +2454,52 @@
       });
     }
 
+    function deseleccionarSelectMultiple(id) {
+      const select = document.getElementById(id);
+      if (!select) return;
+      Array.from(select.options).forEach(function (opcion) {
+        opcion.selected = false;
+      });
+      actualizarResumenExclusionesModal();
+    }
+
+    function resetearPreferenciasTurno(id) {
+      const select = document.getElementById(id);
+      if (!select) return;
+      Array.from(select.options).forEach(function (opcion) {
+        opcion.selected = (opcion.value === 'Cualquiera');
+      });
+      actualizarResumenExclusionesModal();
+    }
+
+    function actualizarResumenExclusionesModal() {
+      const selTurnos = document.getElementById('empExclTurnos');
+      const badgeTurnos = document.getElementById('badgeExclTurnos');
+      if (selTurnos && badgeTurnos) {
+        const sel = Array.from(selTurnos.options).filter(function (o) { return o.selected; }).map(function (o) { return o.value; });
+        if (sel.length === 0) {
+          badgeTurnos.textContent = '✓ Sin exclusiones de turno';
+          badgeTurnos.style.color = 'var(--verde)';
+        } else {
+          badgeTurnos.textContent = '⛔ Excluidos: ' + sel.join(', ');
+          badgeTurnos.style.color = 'var(--rojo)';
+        }
+      }
+
+      const selDias = document.getElementById('empExclDias');
+      const badgeDias = document.getElementById('badgeExclDias');
+      if (selDias && badgeDias) {
+        const sel = Array.from(selDias.options).filter(function (o) { return o.selected; }).map(function (o) { return o.value; });
+        if (sel.length === 0) {
+          badgeDias.textContent = '✓ Sin exclusiones de días';
+          badgeDias.style.color = 'var(--verde)';
+        } else {
+          badgeDias.textContent = '⛔ ' + sel.length + ' días excluidos (' + sel.join(', ') + ')';
+          badgeDias.style.color = 'var(--rojo)';
+        }
+      }
+    }
+
     function abrirModalEmpleado(id) {
       const empleado = ESTADO.empleados.find(function (item) {
         return item.id === id;
@@ -2483,6 +2546,7 @@
 
       exclusionesPuntualesTemp = (empleado && Array.isArray(empleado.exclDayShift)) ? empleado.exclDayShift.slice() : [];
       renderizarExclusionesPuntualesModalUI();
+      actualizarResumenExclusionesModal();
 
       document.getElementById('modalEmpleado').classList.remove('oculto');
     }
@@ -3657,7 +3721,8 @@
         turnos: config.turnos,
         necesidades: config.necesidades,
         horariosRoles: config.horariosRoles,
-        turnosActivosPorDia: config.turnosActivosPorDia
+        turnosActivosPorDia: config.turnosActivosPorDia,
+        excepciones: (config.excepciones || []).slice()
       };
 
       try {
@@ -3685,7 +3750,7 @@
         return;
       }
 
-      if (!confirm('¿Deseas sobrescribir la plantilla "' + plantilla.nombre + '" con la configuración actual de horarios y necesidades?')) {
+      if (!confirm('¿Deseas sobrescribir la plantilla "' + plantilla.nombre + '" con la configuración actual de horarios, necesidades y excepciones?')) {
         return;
       }
 
@@ -3697,6 +3762,7 @@
         necesidades: config.necesidades,
         horariosRoles: config.horariosRoles,
         turnosActivosPorDia: config.turnosActivosPorDia,
+        excepciones: (config.excepciones || []).slice(),
         createdAt: plantilla.createdAt
       };
 
@@ -3704,7 +3770,7 @@
         await llamarServidor('guardarPlantilla', [ESTADO.tokenSesion, datos]);
         await cargarDatos();
         if (select) select.value = id;
-        notificar('Plantilla "' + plantilla.nombre + '" actualizada.', 'ok');
+        notificar('Plantilla "' + plantilla.nombre + '" actualizada con sus excepciones.', 'ok');
       } catch (error) {
         notificar(error.message, 'error');
       }

@@ -12,6 +12,7 @@ const CONFIG = {
   HISTORIAL_SALDOS: 'MPV_HISTORIAL_SALDOS',
   AJUSTES: 'MPV_AJUSTES',
   PLANTILLAS: 'MPV_PLANTILLAS',
+  INICIALIZADO: 'MPV_SISTEMA_INICIALIZADO',
   NOMBRE_NEGOCIO: 'Marcellino Pizza y Vino',
   CADUCIDAD_CALENDARIO: 45,
   CADUCIDAD_COMPENSO: 15,
@@ -70,83 +71,165 @@ function doGet(e) {
    ========================= */
 
 function inicializarSistema() {
-  const empleados = obtenerEmpleados_();
+  const scriptProps = PropertiesService.getScriptProperties();
+  const sistemaInicializado = scriptProps.getProperty(CONFIG.INICIALIZADO);
 
-  if (!empleados || empleados.length === 0) {
-    guardarEmpleados_([
-      {
-        id: '1',
-        name: 'Gilberto Nasser',
-        phone: '+34 676 44 92 13',
-        email: '',
-        dept: 'SALA',
-        hours: 40,
-        active: true,
-        prefShift: ['Cualquiera'],
-        exclShift: [],
-        exclDay: []
-      },
-      {
-        id: '2',
-        name: 'Mohammed Husein',
-        phone: '+34 632 41 09 21',
-        email: '',
-        dept: 'PIZZERIA',
-        hours: 40,
-        active: true,
-        prefShift: ['Cualquiera'],
-        exclShift: [],
-        exclDay: []
-      },
-      {
-        id: '3',
-        name: 'Angela Nasser',
-        phone: '+34 610 19 41 62',
-        email: '',
-        dept: 'COCINA',
-        hours: 40,
-        active: true,
-        prefShift: ['Cualquiera'],
-        exclShift: [],
-        exclDay: []
-      },
-      {
-        id: '4',
-        name: 'Manuel (nuevo)',
-        phone: '+34 654 44 25 99',
-        email: '',
-        dept: 'SALA',
-        hours: 40,
-        active: true,
-        prefShift: ['Cualquiera'],
-        exclShift: [],
-        exclDay: []
-      },
-      {
-        id: '5',
-        name: 'Rosmary Nasser',
-        phone: '+34 681 35 75 83',
-        email: '',
-        dept: 'SALA',
-        hours: 40,
-        active: false,
-        prefShift: ['Cualquiera'],
-        exclShift: [],
-        exclDay: []
-      },
-      {
-        id: '6',
-        name: 'Facundo Cam',
-        phone: '+34 654 44 25 99',
-        email: '',
-        dept: 'SALA',
-        hours: 40,
-        active: true,
-        prefShift: ['Cualquiera'],
-        exclShift: ['Mañana', 'Tarde'],
-        exclDay: ['Lunes', 'Martes', 'Miércoles', 'Jueves']
-      }
-    ]);
+  if (!sistemaInicializado) {
+    const empleados = obtenerEmpleados_();
+    if (!empleados || empleados.length === 0) {
+      guardarEmpleados_([
+        {
+          id: '1',
+          name: 'Gilberto Nasser',
+          phone: '+34 676 44 92 13',
+          email: '',
+          dept: 'SALA',
+          hours: 40,
+          active: true,
+          prefShift: ['Cualquiera'],
+          exclShift: [],
+          exclDay: []
+        },
+        {
+          id: '2',
+          name: 'Mohammed Husein',
+          phone: '+34 632 41 09 21',
+          email: '',
+          dept: 'PIZZERIA',
+          hours: 40,
+          active: true,
+          prefShift: ['Cualquiera'],
+          exclShift: [],
+          exclDay: []
+        },
+        {
+          id: '3',
+          name: 'Angela Nasser',
+          phone: '+34 610 19 41 62',
+          email: '',
+          dept: 'COCINA',
+          hours: 40,
+          active: true,
+          prefShift: ['Cualquiera'],
+          exclShift: [],
+          exclDay: []
+        },
+        {
+          id: '4',
+          name: 'Manuel (nuevo)',
+          phone: '+34 654 44 25 99',
+          email: '',
+          dept: 'SALA',
+          hours: 40,
+          active: true,
+          prefShift: ['Cualquiera'],
+          exclShift: [],
+          exclDay: []
+        },
+        {
+          id: '5',
+          name: 'Rosmary Nasser',
+          phone: '+34 681 35 75 83',
+          email: '',
+          dept: 'SALA',
+          hours: 40,
+          active: false,
+          prefShift: ['Cualquiera'],
+          exclShift: [],
+          exclDay: []
+        },
+        {
+          id: '6',
+          name: 'Facundo Cam',
+          phone: '+34 654 44 25 99',
+          email: '',
+          dept: 'SALA',
+          hours: 40,
+          active: true,
+          prefShift: ['Cualquiera'],
+          exclShift: ['Mañana', 'Tarde'],
+          exclDay: ['Lunes', 'Martes', 'Miércoles', 'Jueves']
+        }
+      ]);
+    }
+  } else {
+    // Si ya fue inicializado, SOLO rellenar si la propiedad nunca existió (null)
+    if (scriptProps.getProperty(CONFIG.EMPLEADOS) === null) {
+      guardarEmpleados_([
+        {
+          id: '1',
+          name: 'Gilberto Nasser',
+          phone: '+34 676 44 92 13',
+          email: '',
+          dept: 'SALA',
+          hours: 40,
+          active: true,
+          prefShift: ['Cualquiera'],
+          exclShift: [],
+          exclDay: []
+        },
+        {
+          id: '2',
+          name: 'Mohammed Husein',
+          phone: '+34 632 41 09 21',
+          email: '',
+          dept: 'PIZZERIA',
+          hours: 40,
+          active: true,
+          prefShift: ['Cualquiera'],
+          exclShift: [],
+          exclDay: []
+        },
+        {
+          id: '3',
+          name: 'Angela Nasser',
+          phone: '+34 610 19 41 62',
+          email: '',
+          dept: 'COCINA',
+          hours: 40,
+          active: true,
+          prefShift: ['Cualquiera'],
+          exclShift: [],
+          exclDay: []
+        },
+        {
+          id: '4',
+          name: 'Manuel (nuevo)',
+          phone: '+34 654 44 25 99',
+          email: '',
+          dept: 'SALA',
+          hours: 40,
+          active: true,
+          prefShift: ['Cualquiera'],
+          exclShift: [],
+          exclDay: []
+        },
+        {
+          id: '5',
+          name: 'Rosmary Nasser',
+          phone: '+34 681 35 75 83',
+          email: '',
+          dept: 'SALA',
+          hours: 40,
+          active: false,
+          prefShift: ['Cualquiera'],
+          exclShift: [],
+          exclDay: []
+        },
+        {
+          id: '6',
+          name: 'Facundo Cam',
+          phone: '+34 654 44 25 99',
+          email: '',
+          dept: 'SALA',
+          hours: 40,
+          active: true,
+          prefShift: ['Cualquiera'],
+          exclShift: ['Mañana', 'Tarde'],
+          exclDay: ['Lunes', 'Martes', 'Miércoles', 'Jueves']
+        }
+      ]);
+    }
   }
 
   const ajustes = obtenerJson_(CONFIG.AJUSTES, null);
@@ -188,12 +271,14 @@ function inicializarSistema() {
           }
         },
         turnosActivosPorDia: normalizarTurnosActivosPorDia_({}),
+        excepciones: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       }
     ]);
   }
 
+  scriptProps.setProperty(CONFIG.INICIALIZADO, 'true');
   return { ok: true, mensaje: 'Sistema inicializado correctamente.' };
 }
 
@@ -700,6 +785,7 @@ function guardarPlantilla(tokenSesion, datos) {
     necesidades: datos.necesidades || NECESIDADES_BASE,
     horariosRoles: datos.horariosRoles || null,
     turnosActivosPorDia: normalizarTurnosActivosPorDia_(datos.turnosActivosPorDia),
+    excepciones: Array.isArray(datos.excepciones) ? datos.excepciones : [],
     createdAt: datos.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -761,6 +847,9 @@ function obtenerEmpleados_() {
 
 function guardarEmpleados_(empleados) {
   guardarJson_(CONFIG.EMPLEADOS, empleados);
+  try {
+    PropertiesService.getScriptProperties().setProperty(CONFIG.INICIALIZADO, 'true');
+  } catch (e) {}
 }
 
 function listarEmpleados() {

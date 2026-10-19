@@ -16,7 +16,8 @@
     AJUSTES: 'MPV_AJUSTES',
     PLANTILLAS: 'MPV_PLANTILLAS',
     ADMIN_PASS: 'MPV_ADMIN_PASSWORD',
-    ADMIN_SESSION: 'MPV_ADMIN_SESSION'
+    ADMIN_SESSION: 'MPV_ADMIN_SESSION',
+    INICIALIZADO: 'MPV_SISTEMA_INICIALIZADO'
   };
 
   const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
@@ -26,7 +27,7 @@
     cena: { nombre: 'Cena', inicio: '19:30', fin: '23:30' }
   };
 
-    const EMPLEADOS_DEFAULT = [
+  const EMPLEADOS_DEFAULT = [
     {
       id: '1',
       name: 'Gilberto Nasser',
@@ -153,6 +154,7 @@
         Sábado:    { manana: true, tarde: true, cena: true },
         Domingo:   { manana: true, tarde: true, cena: true }
       },
+      excepciones: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
@@ -198,11 +200,25 @@
   }
 
   function initStorageIfNeeded() {
-    const empsGuardados = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
-    // Si no hay empleados o solo estaban los 3 empleados de prueba iniciales, cargar la lista oficial
-    if (!empsGuardados || empsGuardados.length === 0 || empsGuardados.some(e => e.name === 'Marcellino')) {
-      setLocalJson(STORAGE_KEYS.EMPLEADOS, EMPLEADOS_DEFAULT);
+    const yaInicializado = localStorage.getItem(STORAGE_KEYS.INICIALIZADO);
+    if (!yaInicializado) {
+      if (localStorage.getItem(STORAGE_KEYS.EMPLEADOS) === null) {
+        setLocalJson(STORAGE_KEYS.EMPLEADOS, EMPLEADOS_DEFAULT);
+      }
+      if (localStorage.getItem(STORAGE_KEYS.PLANTILLAS) === null) {
+        setLocalJson(STORAGE_KEYS.PLANTILLAS, PLANTILLAS_DEFAULT);
+      }
+      localStorage.setItem(STORAGE_KEYS.INICIALIZADO, 'true');
+    } else {
+      // Ya inicializado: SOLO rellenar si la clave nunca existió (null)
+      if (localStorage.getItem(STORAGE_KEYS.EMPLEADOS) === null) {
+        setLocalJson(STORAGE_KEYS.EMPLEADOS, EMPLEADOS_DEFAULT);
+      }
+      if (localStorage.getItem(STORAGE_KEYS.PLANTILLAS) === null) {
+        setLocalJson(STORAGE_KEYS.PLANTILLAS, PLANTILLAS_DEFAULT);
+      }
     }
+
     if (!localStorage.getItem(STORAGE_KEYS.AJUSTES)) {
       setLocalJson(STORAGE_KEYS.AJUSTES, {
         precioHoraExtra: 8.50,
@@ -221,10 +237,6 @@
     }
     if (!localStorage.getItem(STORAGE_KEYS.HISTORIAL_SALDOS)) {
       setLocalJson(STORAGE_KEYS.HISTORIAL_SALDOS, []);
-    }
-    const plantillasGuardadas = getLocalJson(STORAGE_KEYS.PLANTILLAS, []);
-    if (!plantillasGuardadas || plantillasGuardadas.length === 0) {
-      setLocalJson(STORAGE_KEYS.PLANTILLAS, PLANTILLAS_DEFAULT);
     }
   }
 
@@ -829,6 +841,7 @@
             Sábado: { manana: true, tarde: true, cena: true },
             Domingo: { manana: true, tarde: true, cena: true }
           },
+          excepciones: Array.isArray(datos.excepciones) ? datos.excepciones : [],
           createdAt: datos.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -852,8 +865,12 @@
         return { ok: true };
       }
 
+      case 'listarEmpleados': {
+        return getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
+      }
+
       case 'guardarEmpleado': {
-        const datos = args[1];
+        const datos = (args && typeof args[1] === 'object' && args[1] !== null) ? args[1] : (args && typeof args[0] === 'object' ? args[0] : {});
         const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
         const id = datos.id || generarIdLocal();
         const depts = Array.isArray(datos.depts) ? datos.depts : [datos.dept || 'SALA'];
@@ -871,13 +888,27 @@
           active: datos.active !== false,
           prefShift: datos.prefShift || ['Cualquiera'],
           exclShift: datos.exclShift || [],
-          exclDay: datos.exclDay || []
+          exclDay: datos.exclDay || [],
+          exclDayShift: Array.isArray(datos.exclDayShift) ? datos.exclDayShift : []
         };
 
         const idx = emps.findIndex(function (e) { return e.id === id; });
         if (idx >= 0) emps[idx] = empObj; else emps.push(empObj);
         setLocalJson(STORAGE_KEYS.EMPLEADOS, emps);
+        localStorage.setItem(STORAGE_KEYS.INICIALIZADO, 'true');
         return empObj;
+      }
+
+      case 'cambiarEstadoEmpleado': {
+        const id = (args.length >= 2 && typeof args[0] === 'string' && (args[0].indexOf('tok_') === 0 || args[0].indexOf('session') === 0)) ? args[1] : (args[0] || args[1]);
+        const activo = (args.length >= 3) ? args[2] : (args[1] !== undefined ? args[1] : true);
+        const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
+        const emp = emps.find(function(e) { return e.id === String(id); });
+        if (!emp) throw new Error('Empleado no encontrado.');
+        emp.active = Boolean(activo);
+        setLocalJson(STORAGE_KEYS.EMPLEADOS, emps);
+        localStorage.setItem(STORAGE_KEYS.INICIALIZADO, 'true');
+        return { ok: true, empleado: emp };
       }
 
       case 'eliminarEmpleado': {
@@ -885,6 +916,7 @@
         let emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
         emps = emps.filter(function (e) { return e.id !== id; });
         setLocalJson(STORAGE_KEYS.EMPLEADOS, emps);
+        localStorage.setItem(STORAGE_KEYS.INICIALIZADO, 'true');
         return { ok: true };
       }
 
