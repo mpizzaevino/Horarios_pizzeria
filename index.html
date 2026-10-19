@@ -4307,6 +4307,147 @@
       );
     }
 
+    function recalcularIncidenciasCalendarioUI(calendario) {
+      if (!calendario) return [];
+      const fechas = obtenerFechasCalendario(calendario);
+      if (!fechas || !fechas.length) return calendario.incidencias || [];
+
+      const cierres = calendario.cierres || [];
+      const festivos = calendario.festivos || [];
+      const numFestivos = festivos.length;
+      const excepciones = Array.isArray(calendario.excepciones) ? calendario.excepciones : [];
+      const turnos = calendario.turnos || {
+        manana: { nombre: 'Mañana', inicio: '10:00', fin: '16:00' },
+        tarde: { nombre: 'Comida', inicio: '13:00', fin: '16:30' },
+        cena: { nombre: 'Cena', inicio: '19:30', fin: '23:30' }
+      };
+      const necesidades = calendario.necesidades || {
+        manana: { COCINA: 1, PIZZERIA: 0, SALA: 2 },
+        tarde: { COCINA: 1, PIZZERIA: 1, SALA: 2 },
+        cena: { COCINA: 1, PIZZERIA: 1, SALA: 3 }
+      };
+      const asignaciones = Array.isArray(calendario.asignaciones) ? calendario.asignaciones : [];
+      const empleados = ESTADO.empleados || [];
+      const ajustes = ESTADO.ajustes || { diasLaborablesSemana: 6 };
+
+      const nuevasIncidencias = [];
+
+      // Conservar avisos informativos previos (como compensación automática)
+      if (Array.isArray(calendario.incidencias)) {
+        calendario.incidencias.forEach(function (inc) {
+          if (typeof inc === 'string' && (inc.indexOf('⚡') >= 0 || inc.indexOf('Compensación automática') >= 0)) {
+            nuevasIncidencias.push(inc);
+          }
+        });
+      }
+
+      fechas.forEach(function (fechaDate, indiceDia) {
+        const fStr = isoLocal(fechaDate);
+        if (cierres.indexOf(fStr) >= 0) return;
+        const diaNom = DIAS[indiceDia % 7];
+
+        Object.keys(turnos).forEach(function (cTurno) {
+          if (calendario.turnosActivosPorDia && calendario.turnosActivosPorDia[diaNom] && calendario.turnosActivosPorDia[diaNom][cTurno] === false) {
+            return;
+          }
+
+          const turnoObj = turnos[cTurno];
+          if (!turnoObj || !turnoObj.inicio || !turnoObj.fin) return;
+          const nombreTurno = turnoObj.nombre || cTurno;
+
+          // Resolver excepciones para este turno y fecha/día
+          let excepcionAplicable = null;
+          for (let i = 0; i < excepciones.length; i++) {
+            const ex = excepciones[i];
+            if (ex.turno !== cTurno) continue;
+            if (ex.tipo === 'fecha' && ex.valor === fStr) {
+              excepcionAplicable = ex;
+              break;
+            }
+          }
+          if (!excepcionAplicable) {
+            for (let i = 0; i < excepciones.length; i++) {
+              const ex = excepciones[i];
+              if (ex.turno !== cTurno) continue;
+              if (ex.tipo === 'diasemana' && (ex.valor === diaNom || String(ex.valor).toLowerCase() === String(diaNom).toLowerCase())) {
+                excepcionAplicable = ex;
+                break;
+              }
+            }
+          }
+
+          const necBase = necesidades[cTurno] || {};
+          const necEfectivas = Object.assign({}, necBase);
+          if (excepcionAplicable && excepcionAplicable.necesidades) {
+            Object.keys(excepcionAplicable.necesidades).forEach(function (rol) {
+              if (excepcionAplicable.necesidades[rol] !== undefined && excepcionAplicable.necesidades[rol] !== null) {
+                necEfectivas[rol] = Number(excepcionAplicable.necesidades[rol]);
+              }
+            });
+          }
+
+          ['COCINA', 'PIZZERIA', 'SALA'].forEach(function (rol) {
+            const cant = Number(necEfectivas[rol] || 0);
+            if (!cant) return;
+
+            const asignados = asignaciones.filter(function (a) {
+              if (a.date !== fStr) return false;
+              if (a.role) {
+                if (a.role !== rol) return false;
+              } else {
+                const emp = empleados.find(function (e) { return e.id === a.employeeId; });
+                if (!emp || (emp.dept || '').toUpperCase() !== rol) return false;
+              }
+              if (a.shiftKey && a.shiftKey === cTurno) return true;
+              if (!a.shiftKey && a.shiftName === nombreTurno) return true;
+              return false;
+            });
+
+            if (asignados.length < cant) {
+              const faltantes = cant - asignados.length;
+              nuevasIncidencias.push(
+                '⚠️ Turno sin cubrir: ' + fStr + ' (' + diaNom + ') · ' + nombreTurno + ' · ' + rol +
+                ' (faltan ' + faltantes + (faltantes === 1 ? ' persona' : ' personas') + ')'
+              );
+            }
+          });
+        });
+      });
+
+      const horasAsignadas = {};
+      empleados.forEach(function (e) { horasAsignadas[e.id] = 0; });
+      asignaciones.forEach(function (a) {
+        if (horasAsignadas[a.employeeId] !== undefined) {
+          horasAsignadas[a.employeeId] += Number(a.hours) || 0;
+        }
+      });
+
+      const numSemanas = Math.max(1, fechas.length / 7);
+      const diasBasePeriodo = Number(ajustes.diasLaborablesSemana || 6);
+
+      empleados.forEach(function (emp) {
+        if (!emp.active && !horasAsignadas[emp.id]) return;
+        const horasSem = Number(emp.hours || 0);
+        const contratoBase = horasSem * numSemanas;
+        const dedFestivos = (horasSem / diasBasePeriodo) * numFestivos;
+        const contratoPeriodo = Math.round(Math.max(0, contratoBase - dedFestivos) * 2) / 2;
+        const trabajadas = Math.round((horasAsignadas[emp.id] || 0) * 2) / 2;
+        const diferencia = Math.round((trabajadas - contratoPeriodo) * 2) / 2;
+
+        if (diferencia > 4) {
+          nuevasIncidencias.push(
+            '⚠️ ' + emp.name + ': exceso de ' + diferencia + ' horas extra (' + trabajadas + 'h trabajadas vs ' + contratoPeriodo + 'h contrato).'
+          );
+        } else if (diferencia < -4) {
+          nuevasIncidencias.push(
+            '📉 ' + emp.name + ': déficit de ' + Math.abs(diferencia) + ' horas respecto al contrato (' + trabajadas + 'h trabajadas vs ' + contratoPeriodo + 'h contrato).'
+          );
+        }
+      });
+
+      return nuevasIncidencias;
+    }
+
     function renderizarCalendarioActual() {
       const zona = document.getElementById('zonaCalendario');
       const calendario = ESTADO.calendarioActual;
@@ -4315,6 +4456,8 @@
         zona.innerHTML = '';
         return;
       }
+
+      calendario.incidencias = recalcularIncidenciasCalendarioUI(calendario);
 
       const fechas = obtenerFechasCalendario(calendario);
       const semanas = Math.max(1, fechas.length / 7);
@@ -5022,13 +5165,20 @@
     async function guardarCalendarioActualUI() {
       if (!ESTADO.calendarioActual) return;
 
+      // Recalcular incidencias antes de guardar
+      ESTADO.calendarioActual.incidencias = recalcularIncidenciasCalendarioUI(ESTADO.calendarioActual);
+
       // Detectar cambios ANTES de guardar
       var empleadosCambiados = obtenerEmpleadosCambiados();
 
       try {
-        await llamarServidor('guardarCalendarioEditado', [ESTADO.tokenSesion, ESTADO.calendarioActual]);
+        const res = await llamarServidor('guardarCalendarioEditado', [ESTADO.tokenSesion, ESTADO.calendarioActual]);
+        if (res && res.calendario) {
+          ESTADO.calendarioActual = res.calendario;
+        }
         await cargarDatos();
-        notificar('Cambios del calendario guardados.', 'ok');
+        renderizarCalendarioActual();
+        notificar('Cambios del calendario e incidencias guardados correctamente.', 'ok');
 
         // Mostrar panel de notificaciones para los empleados afectados
         if (empleadosCambiados.length) {

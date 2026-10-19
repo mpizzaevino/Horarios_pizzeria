@@ -820,22 +820,26 @@ function eliminarPlantilla(tokenSesion, id) {
 function normalizeEmpleadoDepts_(emp) {
   if (!emp) return emp;
   const ROLES_VALIDOS = ['SALA', 'COCINA', 'PIZZERIA'];
-  let depts = [];
-
-  if (Array.isArray(emp.depts) && emp.depts.length > 0) {
-    depts = emp.depts.filter(function(r) { return ROLES_VALIDOS.indexOf(r) >= 0; });
-  } else if (emp.dept && typeof emp.dept === 'string') {
-    if (ROLES_VALIDOS.indexOf(emp.dept) >= 0) {
-      depts = [emp.dept];
-    }
+  let rolPrincipal = emp.rolPrincipal || emp.dept;
+  if (!rolPrincipal || ROLES_VALIDOS.indexOf(rolPrincipal) < 0) {
+    rolPrincipal = (Array.isArray(emp.depts) && emp.depts.length > 0 && ROLES_VALIDOS.indexOf(emp.depts[0]) >= 0) ? emp.depts[0] : 'SALA';
+  }
+  let rolSecundario = emp.rolSecundario;
+  if (!rolSecundario && Array.isArray(emp.depts) && emp.depts.length > 1 && ROLES_VALIDOS.indexOf(emp.depts[1]) >= 0) {
+    rolSecundario = emp.depts[1];
+  }
+  if (rolSecundario === rolPrincipal || ROLES_VALIDOS.indexOf(rolSecundario) < 0) {
+    rolSecundario = null;
   }
 
-  if (!depts.length) {
-    depts = ['SALA'];
-  }
+  const depts = [rolPrincipal];
+  if (rolSecundario) depts.push(rolSecundario);
 
+  emp.rolPrincipal = rolPrincipal;
+  emp.rolSecundario = rolSecundario;
+  emp.dept = rolPrincipal;
   emp.depts = depts;
-  emp.dept = depts[0]; // Retrocompatibilità per codice o viste legacy
+  emp.diasLibres = Math.min(6, Math.max(0, Number(emp.diasLibres !== undefined && emp.diasLibres !== null && emp.diasLibres !== '' ? emp.diasLibres : 1)));
   emp.saldoHorasAnterior = redondear(Number(emp.saldoHorasAnterior || 0));
   return emp;
 }
@@ -886,16 +890,30 @@ function guardarEmpleado(tokenSesion, datos) {
   }
   if (!depts.length) depts = ['SALA'];
 
+  const rolPrincipal = (datos.rolPrincipal && ROLES_VALIDOS.indexOf(datos.rolPrincipal) >= 0)
+    ? datos.rolPrincipal
+    : (depts[0] || 'SALA');
+  const rolSecundario = (datos.rolSecundario && ROLES_VALIDOS.indexOf(datos.rolSecundario) >= 0 && datos.rolSecundario !== rolPrincipal)
+    ? datos.rolSecundario
+    : ((depts.length > 1 && depts[1] !== rolPrincipal) ? depts[1] : null);
+  const diasLibres = Math.min(6, Math.max(0, Number(datos.diasLibres !== undefined && datos.diasLibres !== null && datos.diasLibres !== '' ? datos.diasLibres : 1)));
+
+  const finalDepts = [rolPrincipal];
+  if (rolSecundario) finalDepts.push(rolSecundario);
+
   const empleado = {
     id: id,
     name: String(datos.name).trim(),
     phone: String(datos.phone).trim(),
     email: String(datos.email || '').trim(),
-    dept: depts[0],
-    depts: depts,
+    dept: rolPrincipal,
+    rolPrincipal: rolPrincipal,
+    rolSecundario: rolSecundario,
+    depts: finalDepts,
     hours: Math.max(0, Number(datos.hours) || 40),
     maxHorasExtraSemana: maxExtra,
     saldoHorasAnterior: redondear(Number(datos.saldoHorasAnterior || 0)),
+    diasLibres: diasLibres,
     active: datos.active !== false,
     prefShift: Array.isArray(datos.prefShift) && datos.prefShift.length ? datos.prefShift : ['Cualquiera'],
     exclShift: Array.isArray(datos.exclShift) ? datos.exclShift : [],
@@ -946,9 +964,96 @@ function guardarSaldoEmpleado(tokenSesion, employeeId, nuevoSaldo) {
   const emp = empleados.find(function(e) { return e.id === String(employeeId); });
   if (!emp) throw new Error('Empleado no encontrado.');
 
+  const saldoAnterior = Number(emp.saldoHorasAnterior || 0);
   emp.saldoHorasAnterior = redondear(Number(nuevoSaldo || 0));
   guardarEmpleados_(empleados);
+
+  const historial = obtenerJson_(CONFIG.HISTORIAL_SALDOS, []);
+  historial.push({
+    id: generarId_(),
+    employeeId: emp.id,
+    employeeName: emp.name,
+    calendarId: null,
+    calendarName: 'Ajuste manual admin',
+    compensationId: null,
+    periodo: 'Ajuste directo',
+    contractHours: Number(emp.hours || 0),
+    workedHours: 0,
+    saldoAnterior: saldoAnterior,
+    saldoPeriodo: 0,
+    ajusteManual: redondear(emp.saldoHorasAnterior - saldoAnterior),
+    finalExtraHours: 0,
+    saldoResultante: emp.saldoHorasAnterior,
+    tipo: emp.saldoHorasAnterior > 0 ? 'DEFICIT' : (emp.saldoHorasAnterior < 0 ? 'CREDITO' : 'AL_DIA'),
+    origen: 'Ajuste rápido de saldo (✏️)',
+    createdAt: new Date().toISOString()
+  });
+  guardarJson_(CONFIG.HISTORIAL_SALDOS, historial);
+
   return { ok: true, saldoHorasAnterior: emp.saldoHorasAnterior };
+}
+
+function consolidarSaldosCalendario(tokenSesion, calendarId, employeeIdTarget) {
+  verificarSesion_(tokenSesion);
+  const calendarios = obtenerCalendarios_();
+  const cal = calendarios.find(function(c) { return c.id === String(calendarId); });
+  if (!cal) throw new Error('Calendario no encontrado.');
+
+  const empleados = obtenerEmpleados_();
+  const resumenes = calcularResumenCalendario(tokenSesion, cal.id);
+  const historial = obtenerJson_(CONFIG.HISTORIAL_SALDOS, []);
+  let actualizados = 0;
+
+  resumenes.forEach(function(res) {
+    if (employeeIdTarget && res.employeeId !== employeeIdTarget) return;
+
+    const emp = empleados.find(function(e) { return e.id === res.employeeId; });
+    if (!emp) return;
+
+    const saldoAnt = redondear(Number(emp.saldoHorasAnterior || 0));
+    const contractHoursEfectivas = redondear(Number(res.contractHoursEfectivas || Math.max(0, res.contractHours + saldoAnt)));
+    const difPeriodo = redondear(Number(res.workedHours) - contractHoursEfectivas);
+    const nuevoSaldo = redondear(difPeriodo < 0 ? Math.abs(difPeriodo) : 0);
+
+    emp.saldoHorasAnterior = nuevoSaldo;
+
+    const idxHist = historial.findIndex(function(h) {
+      return h.calendarId === cal.id && h.employeeId === emp.id && h.origen && h.origen.indexOf('Consolidación') >= 0;
+    });
+
+    const reg = {
+      id: idxHist >= 0 ? historial[idxHist].id : generarId_(),
+      employeeId: emp.id,
+      employeeName: emp.name,
+      calendarId: cal.id,
+      calendarName: cal.nombre,
+      compensationId: null,
+      periodo: cal.desde + ' - ' + cal.hasta,
+      contractHours: res.contractHours,
+      contractHoursEfectivas: contractHoursEfectivas,
+      workedHours: res.workedHours,
+      workedFestiveHours: res.workedFestiveHours || 0,
+      saldoAnterior: saldoAnt,
+      saldoPeriodo: res.saldoPeriodo || 0,
+      ajusteManual: 0,
+      finalExtraHours: res.extraHours || 0,
+      saldoResultante: nuevoSaldo,
+      tipo: nuevoSaldo > 0 ? 'DEFICIT' : (nuevoSaldo < 0 ? 'CREDITO' : 'AL_DIA'),
+      origen: 'Consolidación de saldos del calendario ' + cal.nombre,
+      createdAt: new Date().toISOString()
+    };
+
+    if (idxHist >= 0) {
+      historial[idxHist] = reg;
+    } else {
+      historial.push(reg);
+    }
+    actualizados++;
+  });
+
+  guardarEmpleados_(empleados);
+  guardarJson_(CONFIG.HISTORIAL_SALDOS, historial);
+  return { ok: true, actualizados: actualizados };
 }
 
 function eliminarEmpleado(tokenSesion, id) {
@@ -1198,9 +1303,12 @@ function optimizarCompensacionHoras_(asignaciones, empleados, fechas, festivos) 
 
       if (!tieneRol) continue;
 
-      // Verificación de no duplicación de turno en la misma franja
+      // FIX-BUG1: Verificación estricta de no duplicación de turno en la misma franja
+      // Se comprueba tanto por shiftKey (nuevo) como por date+shiftName para cubrir asignaciones legacy
       const yaAsignadoEnTurno = asignaciones.some(function(other) {
-        return other.employeeId === receptor.emp.id && other.date === a.date && other.shiftKey === a.shiftKey;
+        if (other.employeeId !== receptor.emp.id || other.date !== a.date) return false;
+        if (a.shiftKey && other.shiftKey) return other.shiftKey === a.shiftKey;
+        return other.shiftName === a.shiftName;
       });
 
       if (yaAsignadoEnTurno) continue;
@@ -1263,6 +1371,10 @@ function resolverHorariosEfectivos_(horariosRolesBase, necesidadesBase, claveTur
     };
   }
 
+  // Buscar excepción aplicable: primero por fecha específica, luego por día de semana
+  // Una excepción tiene: { tipo:'fecha'|'diasemana', valor:'YYYY-MM-DD'|'Lunes'|..., turno:'manana'|'tarde'|'cena',
+  //   horarios: { COCINA:{inicio,fin}, PIZZERIA:{inicio,fin}, SALA:{inicio,fin} },  (opcional)
+  //   necesidades: { COCINA:N, PIZZERIA:N, SALA:N }  (opcional) }
   let excepcionAplicable = null;
 
   // Prioridad 1: fecha específica exacta
@@ -1345,15 +1457,30 @@ function generarCalendario(tokenSesion, datos) {
   const asignaciones = [];
   const incidencias = [];
   const horasAsignadas = {};
-  // F2: tracciamento delle ore per settimana di ciascun dipendente
+  // F2 & F19: tracciamento delle ore e dei giorni lavorati per settimana di ciascun dipendente
   const horasSemanales = {};
+  const diasTrabajadosSemana = {};
   const numSemanasPeriodo = Math.ceil(fechas.length / 7);
+
+  // Calcolo giorni operativi (non in chiusura) per ciascuna settimana del periodo
+  const diasOperativosSemana = [];
+  for (let s = 0; s < numSemanasPeriodo; s++) {
+    const iniS = s * 7;
+    const finS = Math.min(fechas.length, iniS + 7);
+    let op = 0;
+    for (let f = iniS; f < finS; f++) {
+      if (cierres.indexOf(fechas[f]) < 0) op++;
+    }
+    diasOperativosSemana[s] = op;
+  }
 
   empleados.forEach(function(e) {
     horasAsignadas[e.id] = 0;
     horasSemanales[e.id] = [];
+    diasTrabajadosSemana[e.id] = [];
     for (let s = 0; s < numSemanasPeriodo; s++) {
       horasSemanales[e.id][s] = 0;
+      diasTrabajadosSemana[e.id][s] = [];
     }
   });
 
@@ -1401,6 +1528,17 @@ function generarCalendario(tokenSesion, datos) {
               return false;
             }
 
+            // Controllo dei giorni liberi garantiti per settimana
+            const diasTrabajados = (diasTrabajadosSemana[e.id] && diasTrabajadosSemana[e.id][numSemana]) || [];
+            const yaTrabajaHoy = diasTrabajados.indexOf(fecha) >= 0;
+            const diasLibresGarantizados = Math.min(6, Math.max(0, Number(e.diasLibres !== undefined && e.diasLibres !== null && e.diasLibres !== '' ? e.diasLibres : 1)));
+            const diasOperativos = diasOperativosSemana[numSemana] !== undefined ? diasOperativosSemana[numSemana] : 6;
+            const maxDiasPermitidos = Math.max(0, Math.min(diasOperativos, 7 - diasLibresGarantizados));
+
+            if (!yaTrabajaHoy && diasTrabajados.length >= maxDiasPermitidos) {
+              return false; // Deve riposare questo giorno per rispettare i giorni liberi garantiti
+            }
+
             // F2: Límite máximo de horas extra semanales y del período por empleado con deducción de festivos
             const contratoSemanaBase = Number(e.hours || 0);
             const diasBaseGenerar = Number((obtenerJson_(CONFIG.AJUSTES, {}).diasLaborablesSemana) || 6);
@@ -1428,6 +1566,14 @@ function generarCalendario(tokenSesion, datos) {
             return true;
           })
           .sort(function(a, b) {
+            // 0. PRECEDENCIA RUOLO PRINCIPALE:
+            // Un lavoratore per cui questo ruolo è PRINCIPALE ha priorità assoluta su chi lo ha come ruolo SECONDARIO!
+            const esPrincipalA = (a.rolPrincipal || a.dept) === rol;
+            const esPrincipalB = (b.rolPrincipal || b.dept) === rol;
+            if (esPrincipalA !== esPrincipalB) {
+              return esPrincipalA ? -1 : 1;
+            }
+
             const numSems = Math.max(1, numSemanasPeriodo);
             const horasSemA = Number(a.hours || 0);
             const horasSemB = Number(b.hours || 0);
@@ -1494,6 +1640,11 @@ function generarCalendario(tokenSesion, datos) {
           horasAsignadas[empleado.id] += horasTurno;
           if (horasSemanales[empleado.id]) {
             horasSemanales[empleado.id][numSemana] = (horasSemanales[empleado.id][numSemana] || 0) + horasTurno;
+          }
+          if (diasTrabajadosSemana[empleado.id] && diasTrabajadosSemana[empleado.id][numSemana]) {
+            if (diasTrabajadosSemana[empleado.id][numSemana].indexOf(fecha) < 0) {
+              diasTrabajadosSemana[empleado.id][numSemana].push(fecha);
+            }
           }
         }
 
@@ -1585,6 +1736,113 @@ function generarCalendario(tokenSesion, datos) {
   return calendario;
 }
 
+function recalcularIncidenciasCalendario_(calendario, empleados, ajustes) {
+  if (!calendario) return [];
+  const desde = calendario.desde;
+  const hasta = calendario.hasta;
+  if (!desde || !hasta) return calendario.incidencias || [];
+
+  const fechas = obtenerFechasPeriodo_(desde, hasta);
+  const cierres = Array.isArray(calendario.cierres) ? calendario.cierres : [];
+  const festivos = Array.isArray(calendario.festivos) ? calendario.festivos : [];
+  const numFestivos = festivos.length;
+  const excepciones = Array.isArray(calendario.excepciones) ? calendario.excepciones : [];
+  const turnosActivosPorDia = normalizarTurnosActivosPorDia_(calendario.turnosActivosPorDia);
+  const turnos = calendario.turnos || TURNOS_BASE;
+  const necesidades = calendario.necesidades || NECESIDADES_BASE;
+  const asignaciones = Array.isArray(calendario.asignaciones) ? calendario.asignaciones : [];
+  const emps = Array.isArray(empleados) ? empleados : obtenerEmpleados_();
+  const confAjustes = ajustes || obtenerJson_(CONFIG.AJUSTES, {});
+
+  const nuevasIncidencias = [];
+
+  // Conservar avisos informativos previos (como compensación automática)
+  if (Array.isArray(calendario.incidencias)) {
+    calendario.incidencias.forEach(function(inc) {
+      if (typeof inc === 'string' && (inc.indexOf('⚡') >= 0 || inc.indexOf('Compensación automática') >= 0)) {
+        nuevasIncidencias.push(inc);
+      }
+    });
+  }
+
+  // 1. Detección de turnos sin cubrir
+  fechas.forEach(function(fecha, indiceDia) {
+    if (cierres.indexOf(fecha) >= 0) return;
+
+    const nombreDia = DIAS[indiceDia % 7];
+
+    Object.keys(turnos).forEach(function(claveTurno) {
+      const turno = turnos[claveTurno];
+      if (!turno || !turno.inicio || !turno.fin) return;
+      if (!franjaActivaEnDia_(turnosActivosPorDia, nombreDia, claveTurno)) return;
+
+      const nombreTurno = turno.nombre || claveTurno;
+      const efectivos = resolverHorariosEfectivos_(calendario.horariosRoles, necesidades, claveTurno, fecha, nombreDia, excepciones);
+      const necesidadTurno = efectivos.necesidades || {};
+
+      ['COCINA', 'PIZZERIA', 'SALA'].forEach(function(rol) {
+        const cantidadNecesaria = Number(necesidadTurno[rol] || 0);
+        if (!cantidadNecesaria) return;
+
+        const asignados = asignaciones.filter(function(a) {
+          if (a.date !== fecha) return false;
+          if (a.role) {
+            if (a.role !== rol) return false;
+          } else {
+            const emp = emps.find(function(e) { return e.id === a.employeeId; });
+            if (!emp || (emp.dept || '').toUpperCase() !== rol) return false;
+          }
+          if (a.shiftKey && a.shiftKey === claveTurno) return true;
+          if (!a.shiftKey && a.shiftName === nombreTurno) return true;
+          return false;
+        });
+
+        if (asignados.length < cantidadNecesaria) {
+          const faltantes = cantidadNecesaria - asignados.length;
+          nuevasIncidencias.push(
+            '⚠️ Turno sin cubrir: ' + fecha + ' (' + nombreDia + ') · ' + nombreTurno + ' · ' + rol +
+            ' (faltan ' + faltantes + (faltantes === 1 ? ' persona' : ' personas') + ')'
+          );
+        }
+      });
+    });
+  });
+
+  // 2. Control de horas trabajadas vs contrato de cada empleado
+  const horasAsignadas = {};
+  emps.forEach(function(e) { horasAsignadas[e.id] = 0; });
+  asignaciones.forEach(function(a) {
+    if (horasAsignadas[a.employeeId] !== undefined) {
+      horasAsignadas[a.employeeId] += Number(a.hours) || 0;
+    }
+  });
+
+  const semanas = Math.max(1, fechas.length / 7);
+  const diasBasePeriodo = Number(confAjustes.diasLaborablesSemana || 6);
+
+  emps.forEach(function(empleado) {
+    if (!empleado.active && !horasAsignadas[empleado.id]) return;
+    const horasSem = Number(empleado.hours || 0);
+    const contratoBase = horasSem * semanas;
+    const dedFestivos = (horasSem / diasBasePeriodo) * numFestivos;
+    const contratoPeriodo = redondear_(Math.max(0, contratoBase - dedFestivos));
+    const trabajadas = redondear_(horasAsignadas[empleado.id] || 0);
+    const diferencia = redondear_(trabajadas - contratoPeriodo);
+
+    if (diferencia > 4) {
+      nuevasIncidencias.push(
+        '⚠️ ' + empleado.name + ': exceso de ' + diferencia + ' horas extra (' + trabajadas + 'h trabajadas vs ' + contratoPeriodo + 'h contrato).'
+      );
+    } else if (diferencia < -4) {
+      nuevasIncidencias.push(
+        '📉 ' + empleado.name + ': déficit de ' + Math.abs(diferencia) + ' horas respecto al contrato (' + trabajadas + 'h trabajadas vs ' + contratoPeriodo + 'h contrato).'
+      );
+    }
+  });
+
+  return nuevasIncidencias;
+}
+
 function guardarCalendarioEditado(tokenSesion, calendario) {
   verificarSesion_(tokenSesion);
   if (!calendario || !calendario.id) throw new Error('Calendario no válido.');
@@ -1594,6 +1852,9 @@ function guardarCalendarioEditado(tokenSesion, calendario) {
 
   if (indice < 0) throw new Error('Calendario no encontrado.');
 
+  const empleados = obtenerEmpleados_();
+  const ajustes = obtenerJson_(CONFIG.AJUSTES, {});
+  calendario.incidencias = recalcularIncidenciasCalendario_(calendario, empleados, ajustes);
   calendario.updatedAt = new Date().toISOString();
   calendarios[indice] = calendario;
   guardarCalendarios_(calendarios);
@@ -1656,7 +1917,7 @@ function calcularSemanaHosteleria(parametri) {
   // Passo 1: Determinare la Giornata Ordinaria Teorica
   const Ore_Giornaliere_Base = redondear(Contratto_Ore_Settimana / Giorni_Lavorativi_Base);
 
-  // Passo 2: Gestione dei Giorni Festivi Infrasettimanali e Rideterminazione dell'Obiettivo (Ore Nomina)
+  // Passo 2: Tracciamento dei Giorni Festivi (solo per identificare le ore da retribuire a tariffa festiva)
   const giorni = Array.isArray(parametri.giorni) ? parametri.giorni : [];
   let Giorni_Festivi_Conteggiati = 0;
   let Totale_Ore_Lavorate = 0;
@@ -1675,12 +1936,15 @@ function calcularSemanaHosteleria(parametri) {
   Totale_Ore_Lavorate = redondear(Totale_Ore_Lavorate);
   Ore_Festive_Lavorate = redondear(Ore_Festive_Lavorate);
 
-  const Ore_Dovute_Settimana = redondear(Math.max(0, Contratto_Ore_Settimana - (Giorni_Festivi_Conteggiati * Ore_Giornaliere_Base)));
+// NUOVA REGOLA (2024): il contratto settimanale è FISSO, senza deduzioni per festivi.
+  // Le ore festive lavorate sono sempre retribuite a tariffa festiva.
+  // Le ore extra ordinarie = max(0, (lavorato - contratto_fisso) - ore_festive)
+  const Ore_Dovute_Settimana = Contratto_Ore_Settimana; // FISSO – non ridotto per festivi
 
-  // Passo 3: Conteggio delle Ore Effettivamente Lavorate e Individuazione del Saldo Extra Totale
-  const Ore_Extra_Totali = redondear(Totale_Ore_Lavorate - Ore_Dovute_Settimana);
+  // Passo 3: Saldo Extra Totale rispetto al contratto fisso
+  const Ore_Extra_Totali = redondear(Math.max(0, Totale_Ore_Lavorate - Ore_Dovute_Settimana));
 
-  // Passo 4: Disaccoppiamento e Ripartizione delle Ore Extra (Ordinarie vs Festive)
+  // Passo 4: Ripartizione Extra (Ordinarie vs Festive)
   const Ore_Extra_Ordinarie = redondear(Math.max(0, Ore_Extra_Totali - Ore_Festive_Lavorate));
 
   // Passo 5: Calcolo del Compenso Economico Finale
@@ -1729,15 +1993,18 @@ function ejecutarUnitTestCalcoloHosteleria() {
   };
 
   const res = calcularSemanaHosteleria(testInput);
+  // NUOVA REGOLA: contratto fisso 30h, nessuna riduzione per festivi
+  // oreDovute=30, extraTot=max(0,32.5-30)=2.5, oreFest=5, extraOrd=max(0,2.5-5)=0
+  // comp = 0×8.50 + 5×11.60 = 58.00
   return {
     ok: (
       res.oreGiornaliereBase === 5.0 &&
       res.giorniFestiviConteggiati === 1 &&
-      res.oreDovuteSettimana === 25.0 &&
-      res.oreExtraTotali === 7.5 &&
+      res.oreDovuteSettimana === 30.0 &&
+      res.oreExtraTotali === 2.5 &&
       res.oreFestiveLavorate === 5.0 &&
-      res.oreExtraOrdinarie === 2.5 &&
-      Math.abs(res.totaleCompensoExtra - 79.25) < 0.001
+      res.oreExtraOrdinarie === 0.0 &&
+      Math.abs(res.totaleCompensoExtra - 58.0) < 0.001
     ),
     dettagli: res
   };
@@ -1815,8 +2082,8 @@ function calcularResumenCalendario(calendarioId) {
 
       totContractBase += contratoSem;
       totFestivosCount += resSem.giorniFestiviConteggiati;
-      totDeduccionFestivos += (resSem.giorniFestiviConteggiati * resSem.oreGiornaliereBase);
-      totContractHours += resSem.oreDovuteSettimana;
+      totDeduccionFestivos += 0; // Non più applicata: il contratto è FISSO
+      totContractHours += contratoSem; // Sempre il contratto base, non ridotto per festivi
       totWorkedHours += resSem.totaleOreLavorate;
       totWorkedFestiveHours += resSem.oreFestiveLavorate;
       totExtraHoursOrd += resSem.oreExtraOrdinarie;
@@ -1834,11 +2101,24 @@ function calcularResumenCalendario(calendarioId) {
     totExtraHoursTot = redondear(totExtraHoursTot);
     totCompensoOrd = redondear2Decimales_(totCompensoOrd);
     totCompensoFest = redondear2Decimales_(totCompensoFest);
-    const totCompensoFinal = redondear2Decimales_(totCompensoOrd + totCompensoFest);
 
     const saldoAnterior = redondear(Number(empleado.saldoHorasAnterior || 0));
-    const saldoPeriodo = totExtraHoursTot;
-    const saldoTotalAcumulado = redondear(saldoPeriodo + saldoAnterior);
+
+    // REGLA CRÍTICA DE COMPENSACIÓN:
+    // El saldo positivo (deuda por haber trabajado menos horas en períodos anteriores)
+    // se SUMA a las horas requeridas de la nómina del período (contractHoursEfectivas).
+    // Las horas extra se computan ÚNICAMENTE sobre las horas trabajadas que superen la nómina efectiva.
+    const contractHoursEfectivas = redondear(Math.max(0, totContractHours + saldoAnterior));
+    const difPeriodo = redondear(totWorkedHours - contractHoursEfectivas);
+    totExtraHoursTot = Math.max(0, difPeriodo);
+    totExtraHoursOrd = Math.max(0, redondear(totExtraHoursTot - totWorkedFestiveHours));
+    const saldoRestante = difPeriodo < 0 ? Math.abs(difPeriodo) : 0;
+    const saldoTotalAcumulado = saldoRestante;
+    const saldoPeriodo = difPeriodo;
+
+    totCompensoOrd = redondear2Decimales_(totExtraHoursOrd * precioHoraExtra);
+    totCompensoFest = redondear2Decimales_(totWorkedFestiveHours * precioHoraFestiva);
+    const totCompensoFinal = redondear2Decimales_(totCompensoOrd + totCompensoFest);
 
     const roleList = (Array.isArray(empleado.depts) && empleado.depts.length)
       ? empleado.depts.join(', ')
@@ -1850,6 +2130,8 @@ function calcularResumenCalendario(calendarioId) {
       role: roleList,
       contractHours: totContractHours,
       contractHoursBase: totContractBase,
+      contractHoursEfectivas: contractHoursEfectivas,
+      contractHoursEfectivas: contractHoursEfectivas,
       giorniLavorativiBase: diasBase,
       oreGiornaliereBase: redondear(contratoSem / diasBase),
       festivosDeduction: totDeduccionFestivos,

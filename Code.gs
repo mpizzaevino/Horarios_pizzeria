@@ -1736,6 +1736,113 @@ function generarCalendario(tokenSesion, datos) {
   return calendario;
 }
 
+function recalcularIncidenciasCalendario_(calendario, empleados, ajustes) {
+  if (!calendario) return [];
+  const desde = calendario.desde;
+  const hasta = calendario.hasta;
+  if (!desde || !hasta) return calendario.incidencias || [];
+
+  const fechas = obtenerFechasPeriodo_(desde, hasta);
+  const cierres = Array.isArray(calendario.cierres) ? calendario.cierres : [];
+  const festivos = Array.isArray(calendario.festivos) ? calendario.festivos : [];
+  const numFestivos = festivos.length;
+  const excepciones = Array.isArray(calendario.excepciones) ? calendario.excepciones : [];
+  const turnosActivosPorDia = normalizarTurnosActivosPorDia_(calendario.turnosActivosPorDia);
+  const turnos = calendario.turnos || TURNOS_BASE;
+  const necesidades = calendario.necesidades || NECESIDADES_BASE;
+  const asignaciones = Array.isArray(calendario.asignaciones) ? calendario.asignaciones : [];
+  const emps = Array.isArray(empleados) ? empleados : obtenerEmpleados_();
+  const confAjustes = ajustes || obtenerJson_(CONFIG.AJUSTES, {});
+
+  const nuevasIncidencias = [];
+
+  // Conservar avisos informativos previos (como compensación automática)
+  if (Array.isArray(calendario.incidencias)) {
+    calendario.incidencias.forEach(function(inc) {
+      if (typeof inc === 'string' && (inc.indexOf('⚡') >= 0 || inc.indexOf('Compensación automática') >= 0)) {
+        nuevasIncidencias.push(inc);
+      }
+    });
+  }
+
+  // 1. Detección de turnos sin cubrir
+  fechas.forEach(function(fecha, indiceDia) {
+    if (cierres.indexOf(fecha) >= 0) return;
+
+    const nombreDia = DIAS[indiceDia % 7];
+
+    Object.keys(turnos).forEach(function(claveTurno) {
+      const turno = turnos[claveTurno];
+      if (!turno || !turno.inicio || !turno.fin) return;
+      if (!franjaActivaEnDia_(turnosActivosPorDia, nombreDia, claveTurno)) return;
+
+      const nombreTurno = turno.nombre || claveTurno;
+      const efectivos = resolverHorariosEfectivos_(calendario.horariosRoles, necesidades, claveTurno, fecha, nombreDia, excepciones);
+      const necesidadTurno = efectivos.necesidades || {};
+
+      ['COCINA', 'PIZZERIA', 'SALA'].forEach(function(rol) {
+        const cantidadNecesaria = Number(necesidadTurno[rol] || 0);
+        if (!cantidadNecesaria) return;
+
+        const asignados = asignaciones.filter(function(a) {
+          if (a.date !== fecha) return false;
+          if (a.role) {
+            if (a.role !== rol) return false;
+          } else {
+            const emp = emps.find(function(e) { return e.id === a.employeeId; });
+            if (!emp || (emp.dept || '').toUpperCase() !== rol) return false;
+          }
+          if (a.shiftKey && a.shiftKey === claveTurno) return true;
+          if (!a.shiftKey && a.shiftName === nombreTurno) return true;
+          return false;
+        });
+
+        if (asignados.length < cantidadNecesaria) {
+          const faltantes = cantidadNecesaria - asignados.length;
+          nuevasIncidencias.push(
+            '⚠️ Turno sin cubrir: ' + fecha + ' (' + nombreDia + ') · ' + nombreTurno + ' · ' + rol +
+            ' (faltan ' + faltantes + (faltantes === 1 ? ' persona' : ' personas') + ')'
+          );
+        }
+      });
+    });
+  });
+
+  // 2. Control de horas trabajadas vs contrato de cada empleado
+  const horasAsignadas = {};
+  emps.forEach(function(e) { horasAsignadas[e.id] = 0; });
+  asignaciones.forEach(function(a) {
+    if (horasAsignadas[a.employeeId] !== undefined) {
+      horasAsignadas[a.employeeId] += Number(a.hours) || 0;
+    }
+  });
+
+  const semanas = Math.max(1, fechas.length / 7);
+  const diasBasePeriodo = Number(confAjustes.diasLaborablesSemana || 6);
+
+  emps.forEach(function(empleado) {
+    if (!empleado.active && !horasAsignadas[empleado.id]) return;
+    const horasSem = Number(empleado.hours || 0);
+    const contratoBase = horasSem * semanas;
+    const dedFestivos = (horasSem / diasBasePeriodo) * numFestivos;
+    const contratoPeriodo = redondear_(Math.max(0, contratoBase - dedFestivos));
+    const trabajadas = redondear_(horasAsignadas[empleado.id] || 0);
+    const diferencia = redondear_(trabajadas - contratoPeriodo);
+
+    if (diferencia > 4) {
+      nuevasIncidencias.push(
+        '⚠️ ' + empleado.name + ': exceso de ' + diferencia + ' horas extra (' + trabajadas + 'h trabajadas vs ' + contratoPeriodo + 'h contrato).'
+      );
+    } else if (diferencia < -4) {
+      nuevasIncidencias.push(
+        '📉 ' + empleado.name + ': déficit de ' + Math.abs(diferencia) + ' horas respecto al contrato (' + trabajadas + 'h trabajadas vs ' + contratoPeriodo + 'h contrato).'
+      );
+    }
+  });
+
+  return nuevasIncidencias;
+}
+
 function guardarCalendarioEditado(tokenSesion, calendario) {
   verificarSesion_(tokenSesion);
   if (!calendario || !calendario.id) throw new Error('Calendario no válido.');
@@ -1745,6 +1852,9 @@ function guardarCalendarioEditado(tokenSesion, calendario) {
 
   if (indice < 0) throw new Error('Calendario no encontrado.');
 
+  const empleados = obtenerEmpleados_();
+  const ajustes = obtenerJson_(CONFIG.AJUSTES, {});
+  calendario.incidencias = recalcularIncidenciasCalendario_(calendario, empleados, ajustes);
   calendario.updatedAt = new Date().toISOString();
   calendarios[indice] = calendario;
   guardarCalendarios_(calendarios);
