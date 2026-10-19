@@ -1221,7 +1221,7 @@ function optimizarCompensacionHoras_(asignaciones, empleados, fechas, festivos) 
       const dedFestivos = (horasSemanales / diasBase) * numFestivos;
       const cEfectivo = Math.max(0, cBase - dedFestivos);
       const saldoAnt = Number(e.saldoHorasAnterior || 0);
-      const cMeta = Math.max(1, cEfectivo - saldoAnt);
+      const cMeta = Math.max(1, cEfectivo + saldoAnt);
       datosEmps[e.id] = {
         emp: e,
         contrato: redondear_(cMeta),
@@ -1319,7 +1319,7 @@ function optimizarCompensacionHoras_(asignaciones, empleados, fechas, festivos) 
       // Verificación de límite máximo de horas extra semanales del receptor
       if (receptor.emp.maxHorasExtraSemana !== null && receptor.emp.maxHorasExtraSemana !== undefined && !isNaN(Number(receptor.emp.maxHorasExtraSemana))) {
         const cBaseSem = Number(receptor.emp.hours || 0);
-        const cEfecSem = Math.max(0, cBaseSem - (Number(receptor.emp.saldoHorasAnterior || 0) / semanas));
+        const cEfecSem = Math.max(0, cBaseSem + (Number(receptor.emp.saldoHorasAnterior || 0) / semanas));
         const maxPermitidoSem = cEfecSem + Number(receptor.emp.maxHorasExtraSemana);
         const horasActualesSem = receptor.horasSemanales[numSemana] || 0;
         if (horasActualesSem + hTurno > maxPermitidoSem + 0.01) continue;
@@ -1545,7 +1545,7 @@ function generarCalendario(tokenSesion, datos) {
             const dedFestivosPeriodo = (contratoSemanaBase / diasBaseGenerar) * numFestivos;
             const contratoPeriodoConFestivos = Math.max(0, (contratoSemanaBase * numSemanasPeriodo) - dedFestivosPeriodo);
             const saldoAnt = Number(e.saldoHorasAnterior || 0);
-            const contratoPeriodoEfectivo = Math.max(0, contratoPeriodoConFestivos - saldoAnt);
+            const contratoPeriodoEfectivo = Math.max(0, contratoPeriodoConFestivos + saldoAnt);
             const contratoSemanaEfectivo = numSemanasPeriodo > 0 ? (contratoPeriodoEfectivo / numSemanasPeriodo) : contratoSemanaBase;
 
             if (e.maxHorasExtraSemana !== null && e.maxHorasExtraSemana !== undefined && !isNaN(Number(e.maxHorasExtraSemana))) {
@@ -1579,32 +1579,37 @@ function generarCalendario(tokenSesion, datos) {
             const horasSemB = Number(b.hours || 0);
             const cBaseA = horasSemA * numSems;
             const cBaseB = horasSemB * numSems;
-            const dedA = (horasSemA / 7) * numFestivos;
-            const dedB = (horasSemB / 7) * numFestivos;
-            const cEfecA = Math.max(1, (cBaseA - dedA) - Number(a.saldoHorasAnterior || 0));
-            const cEfecB = Math.max(1, (cBaseB - dedB) - Number(b.saldoHorasAnterior || 0));
+            const dedA = (horasSemA / diasBaseGenerar) * numFestivos;
+            const dedB = (horasSemB / diasBaseGenerar) * numFestivos;
+            // Debito pregresso: se saldoHorasAnterior > 0, il lavoratore DEVE recuperare queste ore!
+            const saldoAntA = Number(a.saldoHorasAnterior || 0);
+            const saldoAntB = Number(b.saldoHorasAnterior || 0);
+            const cEfecA = Math.max(0, (cBaseA - dedA) + saldoAntA);
+            const cEfecB = Math.max(0, (cBaseB - dedB) + saldoAntB);
 
             const hA = horasAsignadas[a.id] || 0;
             const hB = horasAsignadas[b.id] || 0;
 
-            const bajoContratoA = hA < cEfecA;
-            const bajoContratoB = hB < cEfecB;
+            const deficitA = cEfecA - hA;
+            const deficitB = cEfecB - hB;
 
-            // 1. Un empleado por debajo del contrato tiene prioridad ABSOLUTA sobre quien ya cubrió o superó su contrato
-            if (bajoContratoA !== bajoContratoB) {
-              return bajoContratoA ? -1 : 1;
+            const tieneDeficitA = deficitA > 0.01;
+            const tieneDeficitB = deficitB > 0.01;
+
+            // 1. Chi ha deficit di ore (contando debito pregresso) ha PRIORITÀ ASSOLUTA su chi non ha deficit
+            if (tieneDeficitA !== tieneDeficitB) {
+              return tieneDeficitA ? -1 : 1;
             }
 
-            // 2. Ordenar por menor ratio del contrato cubierto
-            const ratioA = hA / cEfecA;
-            const ratioB = hB / cEfecB;
-
-            if (Math.abs(ratioA - ratioB) > 0.001) {
-              return ratioA - ratioB;
+            // 2. Tra chi ha entrambi deficit, priorità a chi ha il DEFICIT MAGGIORE
+            if (tieneDeficitA && tieneDeficitB) {
+              if (Math.abs(deficitA - deficitB) > 0.01) {
+                return deficitB - deficitA; // deficit più alto prima
+              }
             }
 
-            // 3. Priorizar por menor total de horas absolutas asignadas
-            if (hA !== hB) {
+            // 3. A parità di deficit (o se entrambi hanno già coperto il contratto), priorità a chi ha meno ore totali lavorate
+            if (Math.abs(hA - hB) > 0.01) {
               return hA - hB;
             }
 

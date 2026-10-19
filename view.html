@@ -834,13 +834,20 @@
     function obtenerParametroUrl(nombre) {
       try {
         var params = new URLSearchParams(window.location.search);
-        return (params.get(nombre) || '').trim();
+        var val = params.get(nombre);
+        if (val) return val.trim();
+        if (window.location.hash) {
+          var hashStr = window.location.hash.substring(1);
+          var hashParams = new URLSearchParams(hashStr);
+          val = hashParams.get(nombre);
+          if (val) return val.trim();
+        }
+        return '';
       } catch (e) {
         return '';
       }
     }
 
-    
     function procesarRespuestaServidor(respuesta) {
       if (!respuesta || !respuesta.ok) {
         var motivo = (respuesta && (respuesta.motivo || respuesta.mensaje)) || 'Enlace no válido o caducado.';
@@ -862,10 +869,28 @@
     }
 
     function initViewPage() {
-      var pagina = '';
-      var token = '';
-      pagina = '';
-      token = '';
+      // 1. Soporte enlaces autónomos portátiles (apertura inmediata en móviles o navegadores externos sin login)
+      var d = obtenerParametroUrl('d');
+      if (d) {
+        try {
+          var jsonStr = decodeURIComponent(escape(atob(d)));
+          var datosDirectos = JSON.parse(jsonStr);
+          if (datosDirectos && datosDirectos.ok && (datosDirectos.tipo === 'horario' || datosDirectos.tipo === 'compensacion')) {
+            procesarRespuestaServidor(datosDirectos);
+            if (typeof window.ejecutarEnClienteLocal === 'function') {
+              try {
+                window.ejecutarEnClienteLocal('registrarDatosVistaPublica', [datosDirectos]);
+              } catch(ignore) {}
+            }
+            return;
+          }
+        } catch (eDec) {
+          console.warn('Aviso: decodificación enlace directo:', eDec);
+        }
+      }
+
+      var pagina = '<?= typeof pagina !== "undefined" ? pagina : "" ?>';
+      var token = '<?= typeof token !== "undefined" ? token : "" ?>';
 
       pagina = String(pagina || obtenerParametroUrl('page') || '').replace(/&quot;/g, '').replace(/^"|"$/g, '').trim();
       token  = String(token || obtenerParametroUrl('token') || '').replace(/&quot;/g, '').replace(/^"|"$/g, '').trim();

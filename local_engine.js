@@ -694,6 +694,70 @@
     return nuevasIncidencias;
   }
 
+  function empaquetarPayloadLocal(enlace, cals, emps, compensos) {
+    try {
+      if (!enlace) return '';
+      if (enlace.page === 'view_schedule') {
+        const cal = (cals || []).find(function (c) { return c.id === enlace.calendarId; });
+        if (!cal) return '';
+        const empsVis = enlace.type === 'Calendario Individual'
+          ? (emps || []).filter(function (e) { return e.id === enlace.employeeId; })
+          : (emps || []);
+        const asigsVis = enlace.type === 'Calendario Individual'
+          ? (cal.asignaciones || []).filter(function (a) { return a.employeeId === enlace.employeeId; })
+          : (cal.asignaciones || []);
+        const resumen = calcularResumenCalendarioLocal(cal.id).filter(function (r) {
+          return enlace.type === 'Calendario General' || r.employeeId === enlace.employeeId;
+        });
+
+        const payload = {
+          ok: true,
+          tipo: 'horario',
+          enlace: { nombre: enlace.name, tipo: enlace.type, token: enlace.token },
+          calendario: {
+            id: cal.id,
+            nombre: cal.nombre,
+            desde: cal.desde,
+            hasta: cal.hasta,
+            turnos: cal.turnos,
+            cierres: cal.cierres || [],
+            festivos: cal.festivos || []
+          },
+          empleados: empsVis.map(function (e) {
+            return { id: e.id, name: e.name, dept: e.dept, depts: e.depts, hours: e.hours };
+          }),
+          asignaciones: asigsVis,
+          resumen: resumen
+        };
+
+        const jsonStr = JSON.stringify(payload);
+        if (typeof btoa !== 'undefined') {
+          return btoa(unescape(encodeURIComponent(jsonStr)));
+        } else if (typeof Buffer !== 'undefined') {
+          return Buffer.from(unescape(encodeURIComponent(jsonStr))).toString('base64');
+        }
+      } else if (enlace.page === 'view_compensation') {
+        const comp = (compensos || []).find(function (c) { return c.id === enlace.compensationId; });
+        if (!comp) return '';
+        const payloadComp = {
+          ok: true,
+          tipo: 'compensacion',
+          enlace: { nombre: enlace.name, token: enlace.token },
+          compensacion: comp
+        };
+        const jsonStrComp = JSON.stringify(payloadComp);
+        if (typeof btoa !== 'undefined') {
+          return btoa(unescape(encodeURIComponent(jsonStrComp)));
+        } else if (typeof Buffer !== 'undefined') {
+          return Buffer.from(unescape(encodeURIComponent(jsonStrComp))).toString('base64');
+        }
+      }
+    } catch (e) {
+      console.warn('Aviso al empaquetar enlace:', e);
+    }
+    return '';
+  }
+
   function getBaseUrlLocal() {
     return window.location.href.split('?')[0].replace(/index\.html$/i, '');
   }
@@ -736,8 +800,10 @@
         const plantillas = getLocalJson(STORAGE_KEYS.PLANTILLAS, []);
 
         const baseUrl = getBaseUrlLocal();
+        const compensos = getLocalJson(STORAGE_KEYS.COMPENSOS, []);
         enlaces.forEach(function (e) {
-          e.url = baseUrl + (e.page === 'view_compensation' ? 'view.html?page=view_compensation&token=' : 'view.html?page=view_schedule&token=') + encodeURIComponent(e.token);
+          const d = empaquetarPayloadLocal(e, cals, emps, compensos);
+          e.url = baseUrl + (e.page === 'view_compensation' ? 'view.html?page=view_compensation&token=' : 'view.html?page=view_schedule&token=') + encodeURIComponent(e.token) + (d ? ('&d=' + encodeURIComponent(d)) : '');
         });
 
         return {
@@ -802,6 +868,9 @@
         const horasAsignadas = {};
         const numSemanasPeriodo = Math.ceil(fechas.length / 7);
         const cierres = Array.isArray(datos.cierres) ? datos.cierres : [];
+        const festivos = Array.isArray(datos.festivos) ? datos.festivos : [];
+        const numFestivos = festivos.length;
+        const diasBasePeriodo = Number((getLocalJson(STORAGE_KEYS.AJUSTES, {}).diasLaborablesSemana) || 6);
         const diasOperativosSemana = [];
         for (let s = 0; s < numSemanasPeriodo; s++) {
           const iniS = s * 7;
@@ -886,9 +955,46 @@
                 if (esPrincipalA !== esPrincipalB) {
                   return esPrincipalA ? -1 : 1;
                 }
+
+                const numSems = Math.max(1, numSemanasPeriodo);
+                const horasSemA = Number(a.hours || 0);
+                const horasSemB = Number(b.hours || 0);
+                const cBaseA = horasSemA * numSems;
+                const cBaseB = horasSemB * numSems;
+                const dedA = (horasSemA / diasBasePeriodo) * numFestivos;
+                const dedB = (horasSemB / diasBasePeriodo) * numFestivos;
+                const saldoAntA = Number(a.saldoHorasAnterior || 0);
+                const saldoAntB = Number(b.saldoHorasAnterior || 0);
+                const cEfecA = Math.max(0, (cBaseA - dedA) + saldoAntA);
+                const cEfecB = Math.max(0, (cBaseB - dedB) + saldoAntB);
+
                 const hA = horasAsignadas[a.id] || 0;
                 const hB = horasAsignadas[b.id] || 0;
-                return hA - hB;
+
+                const deficitA = cEfecA - hA;
+                const deficitB = cEfecB - hB;
+
+                const tieneDeficitA = deficitA > 0.01;
+                const tieneDeficitB = deficitB > 0.01;
+
+                // 1. Chi ha deficit di ore (contando debito pregresso) ha PRIORITÀ ASSOLUTA su chi non ha deficit
+                if (tieneDeficitA !== tieneDeficitB) {
+                  return tieneDeficitA ? -1 : 1;
+                }
+
+                // 2. Tra chi ha deficit, priorità assoluta a chi ha il deficit maggiore (deve recuperare più ore)
+                if (tieneDeficitA && tieneDeficitB) {
+                  if (Math.abs(deficitA - deficitB) > 0.01) {
+                    return deficitB - deficitA;
+                  }
+                }
+
+                // 3. A parità di deficit (o se entrambi a contratto coperto), priorità a chi ha meno ore totali lavorate
+                if (Math.abs(hA - hB) > 0.01) {
+                  return hA - hB;
+                }
+
+                return 0;
               });
 
               let asignados = 0;
@@ -949,9 +1055,6 @@
 
         // F2 / Incidencias de horas extra y déficit por trabajador
         const numSemanas = Math.max(1, fechas.length / 7);
-        const festivos = datos.festivos || [];
-        const numFestivos = festivos.length;
-        const diasBasePeriodo = Number((getLocalJson(STORAGE_KEYS.AJUSTES, {}).diasLaborablesSemana) || 6);
 
         emps.forEach(function (emp) {
           const horasSem = Number(emp.hours || 0);
@@ -1411,11 +1514,13 @@
           createdAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + 45 * 86400000).toISOString()
         };
+        const dGen = empaquetarPayloadLocal(enGen, cals, emps, []);
+        enGen.url = baseUrl + 'view.html?page=view_schedule&token=' + encodeURIComponent(tokenGen) + (dGen ? ('&d=' + encodeURIComponent(dGen)) : '');
         enlaces.push(enGen);
 
         emps.forEach(function (emp) {
           const tInd = 'tok_' + Math.random().toString(36).substring(2, 12);
-          enlaces.push({
+          const enInd = {
             id: generarIdLocal(),
             token: tInd,
             name: 'Turnos - ' + emp.name + ' - ' + cal.nombre,
@@ -1428,7 +1533,10 @@
             active: true,
             createdAt: new Date().toISOString(),
             expiresAt: new Date(Date.now() + 45 * 86400000).toISOString()
-          });
+          };
+          const dInd = empaquetarPayloadLocal(enInd, cals, emps, []);
+          enInd.url = baseUrl + 'view.html?page=view_schedule&token=' + encodeURIComponent(tInd) + (dInd ? ('&d=' + encodeURIComponent(dInd)) : '');
+          enlaces.push(enInd);
         });
 
         cal.linksGenerados = true;
@@ -1438,7 +1546,7 @@
         return {
           ok: true,
           total: emps.length + 1,
-          urlGeneral: baseUrl + 'view.html?page=view_schedule&token=' + encodeURIComponent(tokenGen)
+          urlGeneral: enGen.url
         };
       }
 
@@ -1518,6 +1626,31 @@
           enlace: { nombre: enlace.name },
           compensacion: comp
         };
+      }
+
+      case 'registrarDatosVistaPublica': {
+        const datos = args[0];
+        if (datos && datos.enlace && datos.enlace.token) {
+          const enlaces = getLocalJson(STORAGE_KEYS.ENLACES, []);
+          if (!enlaces.some(function (e) { return e.token === datos.enlace.token; })) {
+            enlaces.push({
+              token: datos.enlace.token,
+              name: datos.enlace.nombre,
+              type: datos.enlace.tipo,
+              calendarId: datos.calendario ? datos.calendario.id : '',
+              active: true
+            });
+            setLocalJson(STORAGE_KEYS.ENLACES, enlaces);
+          }
+          if (datos.calendario) {
+            const cals = getLocalJson(STORAGE_KEYS.CALENDARIOS, []);
+            if (!cals.some(function (c) { return c.id === datos.calendario.id; })) {
+              cals.push(datos.calendario);
+              setLocalJson(STORAGE_KEYS.CALENDARIOS, cals);
+            }
+          }
+        }
+        return { ok: true };
       }
 
       case 'existeContrasenaAdmin':

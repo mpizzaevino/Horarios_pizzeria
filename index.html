@@ -4613,6 +4613,7 @@
         '</div>' +
         '<div>' +
         '<button class="boton boton-secundario" onclick="guardarCalendarioActualUI()">Guardar cambios</button>' +
+        '<button class="boton boton-secundario" style="background:#e0f2fe; border:1px solid #0284c7; color:#0369a1; font-weight:600; margin:0 6px;" onclick="reequilibrarCalendarioActualUI()" title="Resuelve turnos sin cubrir y redistribuye horas para acercar a todos los empleados al objetivo 0">⚖️ Riequilibra turnos (Avvisi a 0)</button>' +
         (calendario.linksGenerados
           ? '<button class="boton" disabled title="Los enlaces ya han sido creados. Elimínalos en &quot;Gestión de Links&quot; para regenerarlos.">Enlaces ya creados</button>'
           : '<button class="boton boton-principal" onclick="generarLinksCalendarioUI(\'' + calendario.id + '\')">Generar enlaces de turnos</button>') +
@@ -5196,6 +5197,363 @@
       }
     }
 
+    /* ========================================================
+       REEQUILIBRIO DE TURNOS HACIA OBJETIVO 0 (RESOLUCIÓN DE AVISOS)
+       ======================================================== */
+
+    function reequilibrarCalendarioAlgoritmo(calendario, empleados, ajustes) {
+      if (!calendario) return { turnosCubiertos: 0, turnosReasignados: 0 };
+      const fechas = obtenerFechasCalendario(calendario);
+      if (!fechas || !fechas.length) return { turnosCubiertos: 0, turnosReasignados: 0 };
+
+      const cierres = calendario.cierres || [];
+      const festivos = calendario.festivos || [];
+      const numFestivos = festivos.length;
+      const excepciones = Array.isArray(calendario.excepciones) ? calendario.excepciones : [];
+      const turnos = calendario.turnos || {
+        manana: { nombre: 'Mañana', inicio: '10:00', fin: '16:00' },
+        tarde: { nombre: 'Comida', inicio: '13:00', fin: '16:30' },
+        cena: { nombre: 'Cena', inicio: '19:30', fin: '23:30' }
+      };
+      const necesidades = calendario.necesidades || {
+        manana: { COCINA: 1, PIZZERIA: 0, SALA: 2 },
+        tarde: { COCINA: 1, PIZZERIA: 1, SALA: 2 },
+        cena: { COCINA: 1, PIZZERIA: 1, SALA: 3 }
+      };
+      calendario.asignaciones = Array.isArray(calendario.asignaciones) ? calendario.asignaciones : [];
+      const emps = Array.isArray(empleados) ? empleados : [];
+      const confAjustes = ajustes || { diasLaborablesSemana: 6 };
+      const numSemanas = Math.max(1, fechas.length / 7);
+      const diasBase = Number(confAjustes.diasLaborablesSemana || 6);
+
+      let turnosCubiertos = 0;
+      let turnosReasignados = 0;
+
+      // Días operativos por semana
+      const diasOperativosSemana = [];
+      for (let s = 0; s < numSemanas; s++) {
+        const iniS = s * 7;
+        const finS = Math.min(fechas.length, iniS + 7);
+        let op = 0;
+        for (let f = iniS; f < finS; f++) {
+          if (cierres.indexOf(isoLocal(fechas[f])) < 0) op++;
+        }
+        diasOperativosSemana[s] = op;
+      }
+
+      function obtenerHorasAsignadas() {
+        const h = {};
+        emps.forEach(function (e) { h[e.id] = 0; });
+        calendario.asignaciones.forEach(function (a) {
+          if (h[a.employeeId] !== undefined) {
+            h[a.employeeId] += Number(a.hours) || 0;
+          }
+        });
+        return h;
+      }
+
+      function obtenerHorasSemanales(empId, numSem) {
+        let tot = 0;
+        calendario.asignaciones.forEach(function (a) {
+          if (a.employeeId === empId) {
+            const idx = fechas.findIndex(function (f) { return isoLocal(f) === a.date; });
+            if (idx >= 0 && Math.floor(idx / 7) === numSem) {
+              tot += Number(a.hours) || 0;
+            }
+          }
+        });
+        return tot;
+      }
+
+      function obtenerDiasTrabajadosSemana(empId, numSem) {
+        const dias = [];
+        calendario.asignaciones.forEach(function (a) {
+          if (a.employeeId === empId) {
+            const idx = fechas.findIndex(function (f) { return isoLocal(f) === a.date; });
+            if (idx >= 0 && Math.floor(idx / 7) === numSem) {
+              if (dias.indexOf(a.date) < 0) dias.push(a.date);
+            }
+          }
+        });
+        return dias;
+      }
+
+      function esCompatibleTurno(emp, diaNom, turnoNom) {
+        if (emp.exclDay && emp.exclDay.indexOf(diaNom) >= 0) return false;
+        if (emp.exclShift && (emp.exclShift.indexOf(turnoNom) >= 0 || emp.exclShift.indexOf(diaNom + '_' + turnoNom) >= 0)) return false;
+        return true;
+      }
+
+      // FASE 1: Risoluzione di tutti i turni scoperti ("Turno sin cubrir")
+      fechas.forEach(function (fechaDate, indiceDia) {
+        const fStr = isoLocal(fechaDate);
+        if (cierres.indexOf(fStr) >= 0) return;
+        const diaNom = DIAS[indiceDia % 7];
+        const numSemana = Math.floor(indiceDia / 7);
+
+        Object.keys(turnos).forEach(function (cTurno) {
+          if (calendario.turnosActivosPorDia && calendario.turnosActivosPorDia[diaNom] && calendario.turnosActivosPorDia[diaNom][cTurno] === false) {
+            return;
+          }
+          const turnoObj = turnos[cTurno];
+          if (!turnoObj || !turnoObj.inicio || !turnoObj.fin) return;
+          const nombreTurno = turnoObj.nombre || cTurno;
+
+          let excepcionAplicable = null;
+          for (let i = 0; i < excepciones.length; i++) {
+            const ex = excepciones[i];
+            if (ex.turno !== cTurno) continue;
+            if (ex.tipo === 'fecha' && ex.valor === fStr) { excepcionAplicable = ex; break; }
+          }
+          if (!excepcionAplicable) {
+            for (let i = 0; i < excepciones.length; i++) {
+              const ex = excepciones[i];
+              if (ex.turno !== cTurno) continue;
+              if (ex.tipo === 'diasemana' && (ex.valor === diaNom || String(ex.valor).toLowerCase() === String(diaNom).toLowerCase())) {
+                excepcionAplicable = ex; break;
+              }
+            }
+          }
+
+          const necBase = necesidades[cTurno] || {};
+          const necEfectivas = Object.assign({}, necBase);
+          if (excepcionAplicable && excepcionAplicable.necesidades) {
+            Object.keys(excepcionAplicable.necesidades).forEach(function (rol) {
+              if (excepcionAplicable.necesidades[rol] !== undefined && excepcionAplicable.necesidades[rol] !== null) {
+                necEfectivas[rol] = Number(excepcionAplicable.necesidades[rol]);
+              }
+            });
+          }
+
+          const horRolesBase = (calendario.horariosRoles && calendario.horariosRoles[cTurno]) || {};
+          const horRolesEfectivos = Object.assign({}, horRolesBase);
+          if (excepcionAplicable && excepcionAplicable.horarios) {
+            Object.keys(excepcionAplicable.horarios).forEach(function (rol) {
+              if (excepcionAplicable.horarios[rol]) {
+                horRolesEfectivos[rol] = Object.assign({}, horRolesBase[rol] || {}, excepcionAplicable.horarios[rol]);
+              }
+            });
+          }
+
+          ['COCINA', 'PIZZERIA', 'SALA'].forEach(function (rol) {
+            const cant = Number(necEfectivas[rol] || 0);
+            if (!cant) return;
+
+            const rolTiempos = horRolesEfectivos[rol] || {};
+            const inicioRol = rolTiempos.inicio || turnoObj.inicio;
+            const finRol = rolTiempos.fin || turnoObj.fin;
+            const duracion = calcularHorasEntre(inicioRol, finRol, 0);
+
+            const asignadosTurno = calendario.asignaciones.filter(function (a) {
+              if (a.date !== fStr) return false;
+              if (a.role) {
+                if (a.role !== rol) return false;
+              } else {
+                const emp = emps.find(function (e) { return e.id === a.employeeId; });
+                if (!emp || (emp.dept || '').toUpperCase() !== rol) return false;
+              }
+              if (a.shiftKey && a.shiftKey === cTurno) return true;
+              if (!a.shiftKey && a.shiftName === nombreTurno) return true;
+              return false;
+            });
+
+            let faltan = cant - asignadosTurno.length;
+            if (faltan <= 0) return;
+
+            const horasTotales = obtenerHorasAsignadas();
+
+            const candidatos = emps.filter(function (e) {
+              if (!e.active) return false;
+              const depts = Array.isArray(e.depts) ? e.depts : [e.dept];
+              if (depts.indexOf(rol) < 0) return false;
+
+              // No duplicar presencia en la misma franja
+              const yaEnTurno = calendario.asignaciones.some(function (a) {
+                return a.employeeId === e.id && a.date === fStr && (a.shiftKey === cTurno || a.shiftName === nombreTurno);
+              });
+              if (yaEnTurno) return false;
+
+              if (!esCompatibleTurno(e, diaNom, nombreTurno)) return false;
+
+              // Días libres garantizados
+              const diasTrab = obtenerDiasTrabajadosSemana(e.id, numSemana);
+              const yaTrabajaHoy = diasTrab.indexOf(fStr) >= 0;
+              const diasLibresGarantizados = Math.min(6, Math.max(0, Number(e.diasLibres !== undefined ? e.diasLibres : 1)));
+              const diasOperativos = diasOperativosSemana[numSemana] !== undefined ? diasOperativosSemana[numSemana] : 6;
+              const maxDias = Math.max(0, Math.min(diasOperativos, 7 - diasLibresGarantizados));
+              if (!yaTrabajaHoy && diasTrab.length >= maxDias) return false;
+
+              // Cap semanal horas extra
+              if (e.maxHorasExtraSemana !== null && e.maxHorasExtraSemana !== undefined && !isNaN(Number(e.maxHorasExtraSemana))) {
+                const cSemBase = Number(e.hours || 0);
+                const dedFestSem = (cSemBase / diasBase) * numFestivos;
+                const cSemEfec = Math.max(0, cSemBase - (dedFestSem / numSemanas) + (Number(e.saldoHorasAnterior || 0) / numSemanas));
+                const maxExtraSem = Number(e.maxHorasExtraSemana);
+                const horasActSem = obtenerHorasSemanales(e.id, numSemana);
+                if (horasActSem + duracion > cSemEfec + maxExtraSem + 0.01) return false;
+              }
+
+              return true;
+            }).sort(function (a, b) {
+              // 1. Ruolo Principale vince su Ruolo Secondario
+              const esPrincA = (a.rolPrincipal || a.dept) === rol;
+              const esPrincB = (b.rolPrincipal || b.dept) === rol;
+              if (esPrincA !== esPrincB) return esPrincA ? -1 : 1;
+
+              // 2. Chi ha deficit di ore (contando debito pregresso) ha PRIORITÀ ASSOLUTA
+              const hSemA = Number(a.hours || 0);
+              const hSemB = Number(b.hours || 0);
+              const cEfecA = Math.max(0, (hSemA * numSemanas - (hSemA / diasBase) * numFestivos) + Number(a.saldoHorasAnterior || 0));
+              const cEfecB = Math.max(0, (hSemB * numSemanas - (hSemB / diasBase) * numFestivos) + Number(b.saldoHorasAnterior || 0));
+              const defA = cEfecA - (horasTotales[a.id] || 0);
+              const defB = cEfecB - (horasTotales[b.id] || 0);
+              const tieneDefA = defA > 0.01;
+              const tieneDefB = defB > 0.01;
+
+              if (tieneDefA !== tieneDefB) return tieneDefA ? -1 : 1;
+              if (tieneDefA && tieneDefB && Math.abs(defA - defB) > 0.01) return defB - defA;
+
+              // 3. Minori ore assegnate
+              return (horasTotales[a.id] || 0) - (horasTotales[b.id] || 0);
+            });
+
+            for (let i = 0; i < candidatos.length && faltan > 0; i++) {
+              const elegido = candidatos[i];
+              calendario.asignaciones.push({
+                id: 'auto_req_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
+                employeeId: elegido.id,
+                date: fStr,
+                dayName: diaNom,
+                shiftKey: cTurno,
+                shiftName: nombreTurno,
+                start: inicioRol,
+                end: finRol,
+                hours: duracion,
+                role: rol,
+                compensadoAuto: true
+              });
+              faltan--;
+              turnosCubiertos++;
+            }
+          });
+        });
+      });
+
+      // FASE 2: Riequilibrio delle ore per avvicinare lo scostamento a 0
+      let iter = 0;
+      while (iter < 60) {
+        iter++;
+        const horasTot = obtenerHorasAsignadas();
+        const scostamenti = {};
+        emps.forEach(function (e) {
+          const hSem = Number(e.hours || 0);
+          const cEfec = Math.max(0, (hSem * numSemanas - (hSem / diasBase) * numFestivos) + Number(e.saldoHorasAnterior || 0));
+          scostamenti[e.id] = (horasTot[e.id] || 0) - cEfec;
+        });
+
+        let migliorScambio = null;
+        let migliorMiglioramento = 0;
+
+        for (let i = 0; i < calendario.asignaciones.length; i++) {
+          const a = calendario.asignaciones[i];
+          const donatore = emps.find(function (e) { return e.id === a.employeeId; });
+          if (!donatore || scostamenti[donatore.id] <= 0.5) continue;
+
+          const hTurno = Number(a.hours) || 0;
+          if (hTurno <= 0) continue;
+
+          const idxDia = fechas.findIndex(function (f) { return isoLocal(f) === a.date; });
+          if (idxDia < 0) continue;
+          const numSem = Math.floor(idxDia / 7);
+
+          for (let j = 0; j < emps.length; j++) {
+            const ricevitore = emps[j];
+            if (ricevitore.id === donatore.id || !ricevitore.active) continue;
+            if (scostamenti[ricevitore.id] >= -0.5) continue;
+
+            const deptsRec = Array.isArray(ricevitore.depts) ? ricevitore.depts : [ricevitore.dept];
+            if (deptsRec.indexOf(a.role) < 0) continue;
+
+            const yaEnTurno = calendario.asignaciones.some(function (other) {
+              return other.employeeId === ricevitore.id && other.date === a.date && (other.shiftKey === a.shiftKey || other.shiftName === a.shiftName);
+            });
+            if (yaEnTurno) continue;
+
+            if (!esCompatibleTurno(ricevitore, a.dayName, a.shiftName)) continue;
+
+            const diasTrabRec = obtenerDiasTrabajadosSemana(ricevitore.id, numSem);
+            const yaTrabajaHoy = diasTrabRec.indexOf(a.date) >= 0;
+            const diasLibresGarantizados = Math.min(6, Math.max(0, Number(ricevitore.diasLibres !== undefined ? ricevitore.diasLibres : 1)));
+            const diasOperativos = diasOperativosSemana[numSem] !== undefined ? diasOperativosSemana[numSem] : 6;
+            const maxDias = Math.max(0, Math.min(diasOperativos, 7 - diasLibresGarantizados));
+            if (!yaTrabajaHoy && diasTrabRec.length >= maxDias) continue;
+
+            if (ricevitore.maxHorasExtraSemana !== null && ricevitore.maxHorasExtraSemana !== undefined && !isNaN(Number(ricevitore.maxHorasExtraSemana))) {
+              const cSemBase = Number(ricevitore.hours || 0);
+              const dedFestSem = (cSemBase / diasBase) * numFestivos;
+              const cSemEfec = Math.max(0, cSemBase - (dedFestSem / numSemanas) + (Number(ricevitore.saldoHorasAnterior || 0) / numSemanas));
+              const maxExtraSem = Number(ricevitore.maxHorasExtraSemana);
+              const horasActSem = obtenerHorasSemanales(ricevitore.id, numSem);
+              if (horasActSem + hTurno > cSemEfec + maxExtraSem + 0.01) continue;
+            }
+
+            const absPrima = Math.abs(scostamenti[donatore.id]) + Math.abs(scostamenti[ricevitore.id]);
+            const absDopo = Math.abs(scostamenti[donatore.id] - hTurno) + Math.abs(scostamenti[ricevitore.id] + hTurno);
+            const miglioramento = absPrima - absDopo;
+
+            if (miglioramento > 0.05 && miglioramento > migliorMiglioramento) {
+              migliorMiglioramento = miglioramento;
+              migliorScambio = { asignacion: a, nuevoEmpId: ricevitore.id };
+            }
+          }
+        }
+
+        if (migliorScambio) {
+          migliorScambio.asignacion.employeeId = migliorScambio.nuevoEmpId;
+          migliorScambio.asignacion.compensadoAuto = true;
+          turnosReasignados++;
+        } else {
+          break;
+        }
+      }
+
+      return { turnosCubiertos: turnosCubiertos, turnosReasignados: turnosReasignados };
+    }
+
+    async function reequilibrarCalendarioActualUI() {
+      const calendario = ESTADO.calendarioActual;
+      if (!calendario) return;
+
+      mostrarCarga();
+      try {
+        const resultado = reequilibrarCalendarioAlgoritmo(calendario, ESTADO.empleados, ESTADO.ajustes);
+
+        if (resultado.turnosCubiertos === 0 && resultado.turnosReasignados === 0) {
+          ocultarCarga();
+          notificar('El calendario ya está en el máximo equilibrio posible respetando todas las reglas.', 'aviso');
+          return;
+        }
+
+        calendario.incidencias = recalcularIncidenciasCalendarioUI(calendario);
+        await llamarServidor('guardarCalendarioEditado', [ESTADO.tokenSesion, calendario]);
+        await cargarDatos();
+        renderizarCalendarioActual();
+        guardarSnapshotCalendario();
+
+        var msg = '¡Reequilibrio completado! ';
+        if (resultado.turnosCubiertos > 0) {
+          msg += resultado.turnosCubiertos + ' turno(s) sin cubrir asignado(s). ';
+        }
+        if (resultado.turnosReasignados > 0) {
+          msg += resultado.turnosReasignados + ' turno(s) reasignados hacia el objetivo 0. ';
+        }
+        notificar(msg, 'ok');
+      } catch (err) {
+        ocultarCarga();
+        notificar('Error en reequilibrio: ' + err.message, 'error');
+      }
+    }
+
     async function eliminarCalendarioUI(id) {
       const calendario = ESTADO.calendarios.find(function (item) {
         return item.id === id;
@@ -5245,22 +5603,83 @@
        ENLACES
        ========================== */
 
+    function empaquetarPayloadEnlace(enlace) {
+      try {
+        if (!enlace) return '';
+        if (enlace.page === 'view_schedule') {
+          var cal = (ESTADO.calendarios || []).find(function(c) { return c.id === enlace.calendarId; });
+          if (!cal) return '';
+          var emps = ESTADO.empleados || [];
+          var empsVis = emps;
+          var asigsVis = cal.asignaciones || [];
+          if (enlace.type === 'Calendario Individual') {
+            empsVis = emps.filter(function(e) { return e.id === enlace.employeeId; });
+            asigsVis = asigsVis.filter(function(a) { return a.employeeId === enlace.employeeId; });
+          }
+          var payload = {
+            ok: true,
+            tipo: 'horario',
+            enlace: { nombre: enlace.name, tipo: enlace.type, token: enlace.token },
+            calendario: {
+              id: cal.id,
+              nombre: cal.nombre,
+              desde: cal.desde,
+              hasta: cal.hasta,
+              turnos: cal.turnos,
+              cierres: cal.cierres || [],
+              festivos: cal.festivos || []
+            },
+            empleados: empsVis.map(function(e) {
+              return { id: e.id, name: e.name, dept: e.dept, depts: e.depts, hours: e.hours };
+            }),
+            asignaciones: asigsVis
+          };
+          return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+        } else if (enlace.page === 'view_compensation') {
+          var comp = (ESTADO.compensos || []).find(function(c) { return c.id === enlace.compensationId; });
+          if (!comp) return '';
+          var payloadComp = {
+            ok: true,
+            tipo: 'compensacion',
+            enlace: { nombre: enlace.name, token: enlace.token },
+            compensacion: comp
+          };
+          return btoa(unescape(encodeURIComponent(JSON.stringify(payloadComp))));
+        }
+      } catch (errPack) {
+        console.warn('Aviso empaquetado enlace:', errPack);
+      }
+      return '';
+    }
+
     function construirUrlEnlace(enlace) {
       if (!enlace) return '';
+
+      var esGas = typeof google !== 'undefined' && google.script && google.script.run;
       if (enlace.url && (enlace.url.startsWith('http://') || enlace.url.startsWith('https://'))) {
-        return enlace.url;
+        if (esGas || enlace.url.indexOf('&d=') >= 0) {
+          return enlace.url;
+        }
       }
 
-      var baseUrl = ESTADO.urlApp || (typeof window !== 'undefined' ? window.location.href.split('?')[0] : '');
+      var baseUrl = ESTADO.urlApp || (typeof window !== 'undefined' ? window.location.href.split('?')[0].split('#')[0] : '');
       baseUrl = baseUrl.replace(/\/u\/\d+\//, '/').replace(/index\.html$/i, '');
       if (!baseUrl.endsWith('/')) baseUrl += '/';
 
-      var esGas = typeof google !== 'undefined' && google.script && google.script.run;
       var destino = esGas ? '' : 'view.html';
 
-      return baseUrl + destino +
+      var urlFinal = baseUrl + destino +
         '?page=' + encodeURIComponent(enlace.page || 'view_schedule') +
         '&token=' + encodeURIComponent(enlace.token || '');
+
+      if (!esGas) {
+        var d = empaquetarPayloadEnlace(enlace);
+        if (d) {
+          urlFinal += '&d=' + encodeURIComponent(d);
+        }
+      }
+
+      return urlFinal;
     }
 
     function mensajeWhatsApp(enlace, url) {
