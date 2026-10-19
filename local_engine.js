@@ -200,7 +200,7 @@
     emp.rolSecundario = rolSecundario;
     emp.dept = rolPrincipal;
     emp.depts = depts;
-    emp.diasLibres = Math.min(6, Math.max(1, Number(emp.diasLibres || 1)));
+    emp.diasLibres = Math.min(6, Math.max(0, Number(emp.diasLibres !== undefined && emp.diasLibres !== null && emp.diasLibres !== '' ? emp.diasLibres : 1)));
     emp.saldoHorasAnterior = redondearLocal(Number(emp.saldoHorasAnterior || 0));
     return emp;
   }
@@ -764,9 +764,9 @@
                 // F19: Controllo dei giorni liberi garantiti per settimana
                 const diasTrabajados = (diasTrabajadosSemana[e.id] && diasTrabajadosSemana[e.id][numSemana]) || [];
                 const yaTrabajaHoy = diasTrabajados.indexOf(fStr) >= 0;
-                const diasLibresGarantizados = Math.min(6, Math.max(1, Number(e.diasLibres || 1)));
+                const diasLibresGarantizados = Math.min(6, Math.max(0, Number(e.diasLibres !== undefined && e.diasLibres !== null && e.diasLibres !== '' ? e.diasLibres : 1)));
                 const diasOperativos = diasOperativosSemana[numSemana] !== undefined ? diasOperativosSemana[numSemana] : 6;
-                const maxDiasPermitidos = Math.max(1, diasOperativos - diasLibresGarantizados);
+                const maxDiasPermitidos = Math.max(0, Math.min(diasOperativos, 7 - diasLibresGarantizados));
 
                 if (!yaTrabajaHoy && diasTrabajados.length >= maxDiasPermitidos) {
                   return false;
@@ -983,7 +983,7 @@
         const rolSecundario = (datos.rolSecundario && ROLES_VALIDOS.indexOf(datos.rolSecundario) >= 0 && datos.rolSecundario !== rolPrincipal)
           ? datos.rolSecundario
           : ((depts.length > 1 && depts[1] !== rolPrincipal) ? depts[1] : null);
-        const diasLibres = Math.min(6, Math.max(1, Number(datos.diasLibres || 1)));
+        const diasLibres = Math.min(6, Math.max(0, Number(datos.diasLibres !== undefined && datos.diasLibres !== null && datos.diasLibres !== '' ? datos.diasLibres : 1)));
 
         const finalDepts = [rolPrincipal];
         if (rolSecundario) finalDepts.push(rolSecundario);

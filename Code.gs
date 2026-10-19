@@ -820,22 +820,26 @@ function eliminarPlantilla(tokenSesion, id) {
 function normalizeEmpleadoDepts_(emp) {
   if (!emp) return emp;
   const ROLES_VALIDOS = ['SALA', 'COCINA', 'PIZZERIA'];
-  let depts = [];
-
-  if (Array.isArray(emp.depts) && emp.depts.length > 0) {
-    depts = emp.depts.filter(function(r) { return ROLES_VALIDOS.indexOf(r) >= 0; });
-  } else if (emp.dept && typeof emp.dept === 'string') {
-    if (ROLES_VALIDOS.indexOf(emp.dept) >= 0) {
-      depts = [emp.dept];
-    }
+  let rolPrincipal = emp.rolPrincipal || emp.dept;
+  if (!rolPrincipal || ROLES_VALIDOS.indexOf(rolPrincipal) < 0) {
+    rolPrincipal = (Array.isArray(emp.depts) && emp.depts.length > 0 && ROLES_VALIDOS.indexOf(emp.depts[0]) >= 0) ? emp.depts[0] : 'SALA';
+  }
+  let rolSecundario = emp.rolSecundario;
+  if (!rolSecundario && Array.isArray(emp.depts) && emp.depts.length > 1 && ROLES_VALIDOS.indexOf(emp.depts[1]) >= 0) {
+    rolSecundario = emp.depts[1];
+  }
+  if (rolSecundario === rolPrincipal || ROLES_VALIDOS.indexOf(rolSecundario) < 0) {
+    rolSecundario = null;
   }
 
-  if (!depts.length) {
-    depts = ['SALA'];
-  }
+  const depts = [rolPrincipal];
+  if (rolSecundario) depts.push(rolSecundario);
 
+  emp.rolPrincipal = rolPrincipal;
+  emp.rolSecundario = rolSecundario;
+  emp.dept = rolPrincipal;
   emp.depts = depts;
-  emp.dept = depts[0]; // Retrocompatibilità per codice o viste legacy
+  emp.diasLibres = Math.min(6, Math.max(0, Number(emp.diasLibres !== undefined && emp.diasLibres !== null && emp.diasLibres !== '' ? emp.diasLibres : 1)));
   emp.saldoHorasAnterior = redondear(Number(emp.saldoHorasAnterior || 0));
   return emp;
 }
@@ -886,16 +890,30 @@ function guardarEmpleado(tokenSesion, datos) {
   }
   if (!depts.length) depts = ['SALA'];
 
+  const rolPrincipal = (datos.rolPrincipal && ROLES_VALIDOS.indexOf(datos.rolPrincipal) >= 0)
+    ? datos.rolPrincipal
+    : (depts[0] || 'SALA');
+  const rolSecundario = (datos.rolSecundario && ROLES_VALIDOS.indexOf(datos.rolSecundario) >= 0 && datos.rolSecundario !== rolPrincipal)
+    ? datos.rolSecundario
+    : ((depts.length > 1 && depts[1] !== rolPrincipal) ? depts[1] : null);
+  const diasLibres = Math.min(6, Math.max(0, Number(datos.diasLibres !== undefined && datos.diasLibres !== null && datos.diasLibres !== '' ? datos.diasLibres : 1)));
+
+  const finalDepts = [rolPrincipal];
+  if (rolSecundario) finalDepts.push(rolSecundario);
+
   const empleado = {
     id: id,
     name: String(datos.name).trim(),
     phone: String(datos.phone).trim(),
     email: String(datos.email || '').trim(),
-    dept: depts[0],
-    depts: depts,
+    dept: rolPrincipal,
+    rolPrincipal: rolPrincipal,
+    rolSecundario: rolSecundario,
+    depts: finalDepts,
     hours: Math.max(0, Number(datos.hours) || 40),
     maxHorasExtraSemana: maxExtra,
     saldoHorasAnterior: redondear(Number(datos.saldoHorasAnterior || 0)),
+    diasLibres: diasLibres,
     active: datos.active !== false,
     prefShift: Array.isArray(datos.prefShift) && datos.prefShift.length ? datos.prefShift : ['Cualquiera'],
     exclShift: Array.isArray(datos.exclShift) ? datos.exclShift : [],
@@ -1439,15 +1457,30 @@ function generarCalendario(tokenSesion, datos) {
   const asignaciones = [];
   const incidencias = [];
   const horasAsignadas = {};
-  // F2: tracciamento delle ore per settimana di ciascun dipendente
+  // F2 & F19: tracciamento delle ore e dei giorni lavorati per settimana di ciascun dipendente
   const horasSemanales = {};
+  const diasTrabajadosSemana = {};
   const numSemanasPeriodo = Math.ceil(fechas.length / 7);
+
+  // Calcolo giorni operativi (non in chiusura) per ciascuna settimana del periodo
+  const diasOperativosSemana = [];
+  for (let s = 0; s < numSemanasPeriodo; s++) {
+    const iniS = s * 7;
+    const finS = Math.min(fechas.length, iniS + 7);
+    let op = 0;
+    for (let f = iniS; f < finS; f++) {
+      if (cierres.indexOf(fechas[f]) < 0) op++;
+    }
+    diasOperativosSemana[s] = op;
+  }
 
   empleados.forEach(function(e) {
     horasAsignadas[e.id] = 0;
     horasSemanales[e.id] = [];
+    diasTrabajadosSemana[e.id] = [];
     for (let s = 0; s < numSemanasPeriodo; s++) {
       horasSemanales[e.id][s] = 0;
+      diasTrabajadosSemana[e.id][s] = [];
     }
   });
 
@@ -1495,6 +1528,17 @@ function generarCalendario(tokenSesion, datos) {
               return false;
             }
 
+            // Controllo dei giorni liberi garantiti per settimana
+            const diasTrabajados = (diasTrabajadosSemana[e.id] && diasTrabajadosSemana[e.id][numSemana]) || [];
+            const yaTrabajaHoy = diasTrabajados.indexOf(fecha) >= 0;
+            const diasLibresGarantizados = Math.min(6, Math.max(0, Number(e.diasLibres !== undefined && e.diasLibres !== null && e.diasLibres !== '' ? e.diasLibres : 1)));
+            const diasOperativos = diasOperativosSemana[numSemana] !== undefined ? diasOperativosSemana[numSemana] : 6;
+            const maxDiasPermitidos = Math.max(0, Math.min(diasOperativos, 7 - diasLibresGarantizados));
+
+            if (!yaTrabajaHoy && diasTrabajados.length >= maxDiasPermitidos) {
+              return false; // Deve riposare questo giorno per rispettare i giorni liberi garantiti
+            }
+
             // F2: Límite máximo de horas extra semanales y del período por empleado con deducción de festivos
             const contratoSemanaBase = Number(e.hours || 0);
             const diasBaseGenerar = Number((obtenerJson_(CONFIG.AJUSTES, {}).diasLaborablesSemana) || 6);
@@ -1522,6 +1566,14 @@ function generarCalendario(tokenSesion, datos) {
             return true;
           })
           .sort(function(a, b) {
+            // 0. PRECEDENCIA RUOLO PRINCIPALE:
+            // Un lavoratore per cui questo ruolo è PRINCIPALE ha priorità assoluta su chi lo ha come ruolo SECONDARIO!
+            const esPrincipalA = (a.rolPrincipal || a.dept) === rol;
+            const esPrincipalB = (b.rolPrincipal || b.dept) === rol;
+            if (esPrincipalA !== esPrincipalB) {
+              return esPrincipalA ? -1 : 1;
+            }
+
             const numSems = Math.max(1, numSemanasPeriodo);
             const horasSemA = Number(a.hours || 0);
             const horasSemB = Number(b.hours || 0);
@@ -1588,6 +1640,11 @@ function generarCalendario(tokenSesion, datos) {
           horasAsignadas[empleado.id] += horasTurno;
           if (horasSemanales[empleado.id]) {
             horasSemanales[empleado.id][numSemana] = (horasSemanales[empleado.id][numSemana] || 0) + horasTurno;
+          }
+          if (diasTrabajadosSemana[empleado.id] && diasTrabajadosSemana[empleado.id][numSemana]) {
+            if (diasTrabajadosSemana[empleado.id][numSemana].indexOf(fecha) < 0) {
+              diasTrabajadosSemana[empleado.id][numSemana].push(fecha);
+            }
           }
         }
 
