@@ -5603,6 +5603,16 @@
        ENLACES
        ========================== */
 
+    function b64EncodeUnicodeUI(str) {
+      try {
+        return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, function(m, p) {
+          return String.fromCharCode('0x' + p);
+        }));
+      } catch (e) {
+        return btoa(unescape(encodeURIComponent(str)));
+      }
+    }
+
     function empaquetarPayloadEnlace(enlace) {
       try {
         if (!enlace) return '';
@@ -5610,41 +5620,71 @@
           var cal = (ESTADO.calendarios || []).find(function(c) { return c.id === enlace.calendarId; });
           if (!cal) return '';
           var emps = ESTADO.empleados || [];
-          var empsVis = emps;
-          var asigsVis = cal.asignaciones || [];
-          if (enlace.type === 'Calendario Individual') {
-            empsVis = emps.filter(function(e) { return e.id === enlace.employeeId; });
-            asigsVis = asigsVis.filter(function(a) { return a.employeeId === enlace.employeeId; });
-          }
-          var payload = {
+          var empsVis = enlace.type === 'Calendario Individual'
+            ? emps.filter(function(e) { return e.id === enlace.employeeId; })
+            : emps;
+          var asigsVis = enlace.type === 'Calendario Individual'
+            ? (cal.asignaciones || []).filter(function(a) { return a.employeeId === enlace.employeeId; })
+            : (cal.asignaciones || []);
+          var resumen = (typeof calcularResumenPeriodo === 'function' ? (calcularResumenPeriodo(cal) || []) : []).filter(function(r) {
+            return enlace.type === 'Calendario General' || r.employeeId === enlace.employeeId;
+          });
+
+          var compactPayload = {
             ok: true,
-            tipo: 'horario',
-            enlace: { nombre: enlace.name, tipo: enlace.type, token: enlace.token },
-            calendario: {
+            t: 'h',
+            e: { n: enlace.name, t: enlace.type, k: enlace.token },
+            c: {
               id: cal.id,
-              nombre: cal.nombre,
-              desde: cal.desde,
-              hasta: cal.hasta,
-              turnos: cal.turnos,
-              cierres: cal.cierres || [],
-              festivos: cal.festivos || []
+              n: cal.nombre,
+              d: cal.desde,
+              h: cal.hasta,
+              ci: cal.cierres || [],
+              fe: cal.festivos || [],
+              tu: cal.turnos || null,
+              ta: cal.turnosActivosPorDia || null,
+              ex: cal.excepciones || null
             },
-            empleados: empsVis.map(function(e) {
-              return { id: e.id, name: e.name, dept: e.dept, depts: e.depts, hours: e.hours };
+            em: empsVis.map(function(e) {
+              return [e.id, e.name, e.dept || '', Number(e.hours || 0)];
             }),
-            asignaciones: asigsVis
+            a: asigsVis.map(function(a) {
+              return [
+                a.date,
+                a.shiftKey || '',
+                a.shiftName || '',
+                a.start || '',
+                a.end || '',
+                Number(a.hours || 0),
+                a.role || '',
+                a.employeeId || '',
+                a.employeeName || ''
+              ];
+            }),
+            r: resumen.map(function(r) {
+              return [
+                r.employeeId || '',
+                r.employeeName || '',
+                r.role || '',
+                Number(r.contractHours || 0),
+                Number(r.workedHours || 0),
+                Number(r.saldoPeriodo || 0),
+                Number(r.saldoTotalAcumulado || 0),
+                Number(r.saldoHorasAnterior || 0)
+              ];
+            })
           };
-          return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+          return b64EncodeUnicodeUI(JSON.stringify(compactPayload));
         } else if (enlace.page === 'view_compensation') {
           var comp = (ESTADO.compensos || []).find(function(c) { return c.id === enlace.compensationId; });
           if (!comp) return '';
-          var payloadComp = {
+          var compactComp = {
             ok: true,
-            tipo: 'compensacion',
-            enlace: { nombre: enlace.name, token: enlace.token },
-            compensacion: comp
+            t: 'c',
+            e: { n: enlace.name, k: enlace.token },
+            co: comp
           };
-          return btoa(unescape(encodeURIComponent(JSON.stringify(payloadComp))));
+          return b64EncodeUnicodeUI(JSON.stringify(compactComp));
         }
       } catch (errPack) {
         console.warn('Aviso empaquetado enlace:', errPack);
@@ -5657,7 +5697,11 @@
 
       var esGas = typeof google !== 'undefined' && google.script && google.script.run;
       if (enlace.url && (enlace.url.startsWith('http://') || enlace.url.startsWith('https://'))) {
-        if (esGas || enlace.url.indexOf('&d=') >= 0) {
+        if (enlace.url.indexOf('&d=') >= 0) {
+          // Si tenía &d= antiguo en la URL, conviértelo a #d= para evitar HTTP 414 URI Too Long en GitHub Pages
+          return enlace.url.replace('&d=', '#d=');
+        }
+        if (esGas || enlace.url.indexOf('#d=') >= 0) {
           return enlace.url;
         }
       }
@@ -5675,7 +5719,7 @@
       if (!esGas) {
         var d = empaquetarPayloadEnlace(enlace);
         if (d) {
-          urlFinal += '&d=' + encodeURIComponent(d);
+          urlFinal += '#d=' + encodeURIComponent(d);
         }
       }
 

@@ -848,6 +848,120 @@
       }
     }
 
+    function obtenerDDirecto() {
+      try {
+        var hash = window.location.hash || '';
+        if (hash.startsWith('#')) hash = hash.substring(1);
+        if (hash) {
+          if (hash.startsWith('d=')) {
+            return decodeURIComponent(hash.substring(2));
+          }
+          var mHash = hash.match(/(?:^|&)d=([^&]+)/);
+          if (mHash && mHash[1]) {
+            return decodeURIComponent(mHash[1]);
+          }
+        }
+        var search = window.location.search || '';
+        if (search.startsWith('?')) search = search.substring(1);
+        if (search) {
+          var mSearch = search.match(/(?:^|&)d=([^&]+)/);
+          if (mSearch && mSearch[1]) {
+            return decodeURIComponent(mSearch[1]);
+          }
+        }
+      } catch (e) {
+        console.warn('Error extrayendo parametro d:', e);
+      }
+      return '';
+    }
+
+    function b64DecodeUnicodeView(b64) {
+      if (!b64) return '';
+      var clean = b64.replace(/ /g, '+').replace(/-/g, '+').replace(/_/g, '/');
+      while (clean.length % 4 !== 0) {
+        clean += '=';
+      }
+      try {
+        var binary = atob(clean);
+        return decodeURIComponent(Array.prototype.map.call(binary, function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+      } catch (e) {
+        return decodeURIComponent(escape(atob(clean)));
+      }
+    }
+
+    function normalizarPayload(d) {
+      if (!d) return null;
+      if (d.t === 'h') {
+        return {
+          ok: true,
+          tipo: 'horario',
+          enlace: { nombre: (d.e && d.e.n) || '', tipo: (d.e && d.e.t) || '', token: (d.e && d.e.k) || '' },
+          calendario: {
+            id: (d.c && d.c.id) || '',
+            nombre: (d.c && d.c.n) || '',
+            desde: (d.c && d.c.d) || '',
+            hasta: (d.c && d.c.h) || '',
+            cierres: (d.c && d.c.ci) || [],
+            festivos: (d.c && d.c.fe) || [],
+            turnos: (d.c && d.c.tu) || {
+              manana: { nombre: 'Mañana', inicio: '10:00', fin: '16:00' },
+              tarde: { nombre: 'Comida', inicio: '13:00', fin: '16:30' },
+              cena: { nombre: 'Cena', inicio: '19:30', fin: '23:30' }
+            },
+            turnosActivosPorDia: (d.c && d.c.ta) || {},
+            excepciones: (d.c && d.c.ex) || []
+          },
+          empleados: (d.em || []).map(function(item) {
+            if (Array.isArray(item)) {
+              return { id: item[0], name: item[1], dept: item[2], hours: item[3] };
+            }
+            return item;
+          }),
+          asignaciones: (d.a || []).map(function(item) {
+            if (Array.isArray(item)) {
+              return {
+                date: item[0],
+                shiftKey: item[1],
+                shiftName: item[2],
+                start: item[3],
+                end: item[4],
+                hours: item[5],
+                role: item[6],
+                employeeId: item[7],
+                employeeName: item[8] || ''
+              };
+            }
+            return item;
+          }),
+          resumen: (d.r || []).map(function(item) {
+            if (Array.isArray(item)) {
+              return {
+                employeeId: item[0],
+                employeeName: item[1],
+                role: item[2],
+                contractHours: item[3],
+                workedHours: item[4],
+                saldoPeriodo: item[5],
+                saldoTotalAcumulado: item[6],
+                saldoHorasAnterior: item[7] || 0
+              };
+            }
+            return item;
+          })
+        };
+      } else if (d.t === 'c') {
+        return {
+          ok: true,
+          tipo: 'compensacion',
+          enlace: { nombre: (d.e && d.e.n) || '', token: (d.e && d.e.k) || '' },
+          compensacion: d.co
+        };
+      }
+      return d;
+    }
+
     function procesarRespuestaServidor(respuesta) {
       if (!respuesta || !respuesta.ok) {
         var motivo = (respuesta && (respuesta.motivo || respuesta.mensaje)) || 'Enlace no válido o caducado.';
@@ -870,19 +984,24 @@
 
     function initViewPage() {
       // 1. Soporte enlaces autónomos portátiles (apertura inmediata en móviles o navegadores externos sin login)
-      var d = obtenerParametroUrl('d');
+      var d = obtenerDDirecto();
       if (d) {
         try {
-          var jsonStr = decodeURIComponent(escape(atob(d)));
+          var jsonStr = b64DecodeUnicodeView(d);
           var datosDirectos = JSON.parse(jsonStr);
-          if (datosDirectos && datosDirectos.ok && (datosDirectos.tipo === 'horario' || datosDirectos.tipo === 'compensacion')) {
-            procesarRespuestaServidor(datosDirectos);
-            if (typeof window.ejecutarEnClienteLocal === 'function') {
-              try {
-                window.ejecutarEnClienteLocal('registrarDatosVistaPublica', [datosDirectos]);
-              } catch(ignore) {}
+          if (datosDirectos) {
+            if (datosDirectos.t === 'h' || datosDirectos.t === 'c') {
+              datosDirectos = normalizarPayload(datosDirectos);
             }
-            return;
+            if (datosDirectos.ok && (datosDirectos.tipo === 'horario' || datosDirectos.tipo === 'compensacion')) {
+              procesarRespuestaServidor(datosDirectos);
+              if (typeof window.ejecutarEnClienteLocal === 'function') {
+                try {
+                  window.ejecutarEnClienteLocal('registrarDatosVistaPublica', [datosDirectos]);
+                } catch(ignore) {}
+              }
+              return;
+            }
           }
         } catch (eDec) {
           console.warn('Aviso: decodificación enlace directo:', eDec);

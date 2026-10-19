@@ -694,6 +694,25 @@
     return nuevasIncidencias;
   }
 
+  function b64EncodeUnicodeLocal(str) {
+    try {
+      if (typeof btoa !== 'undefined') {
+        return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, function (m, p) {
+          return String.fromCharCode('0x' + p);
+        }));
+      }
+      if (typeof Buffer !== 'undefined') {
+        return Buffer.from(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, function (m, p) {
+          return String.fromCharCode('0x' + p);
+        }), 'binary').toString('base64');
+      }
+    } catch (e) {
+      if (typeof btoa !== 'undefined') return btoa(unescape(encodeURIComponent(str)));
+      if (typeof Buffer !== 'undefined') return Buffer.from(unescape(encodeURIComponent(str))).toString('base64');
+    }
+    return '';
+  }
+
   function empaquetarPayloadLocal(enlace, cals, emps, compensos) {
     try {
       if (!enlace) return '';
@@ -710,47 +729,62 @@
           return enlace.type === 'Calendario General' || r.employeeId === enlace.employeeId;
         });
 
-        const payload = {
+        const compactPayload = {
           ok: true,
-          tipo: 'horario',
-          enlace: { nombre: enlace.name, tipo: enlace.type, token: enlace.token },
-          calendario: {
+          t: 'h',
+          e: { n: enlace.name, t: enlace.type, k: enlace.token },
+          c: {
             id: cal.id,
-            nombre: cal.nombre,
-            desde: cal.desde,
-            hasta: cal.hasta,
-            turnos: cal.turnos,
-            cierres: cal.cierres || [],
-            festivos: cal.festivos || []
+            n: cal.nombre,
+            d: cal.desde,
+            h: cal.hasta,
+            ci: cal.cierres || [],
+            fe: cal.festivos || [],
+            tu: cal.turnos || null,
+            ta: cal.turnosActivosPorDia || null,
+            ex: cal.excepciones || null
           },
-          empleados: empsVis.map(function (e) {
-            return { id: e.id, name: e.name, dept: e.dept, depts: e.depts, hours: e.hours };
+          em: empsVis.map(function (e) {
+            return [e.id, e.name, e.dept || '', Number(e.hours || 0)];
           }),
-          asignaciones: asigsVis,
-          resumen: resumen
+          a: asigsVis.map(function (a) {
+            return [
+              a.date,
+              a.shiftKey || '',
+              a.shiftName || '',
+              a.start || '',
+              a.end || '',
+              Number(a.hours || 0),
+              a.role || '',
+              a.employeeId || '',
+              a.employeeName || ''
+            ];
+          }),
+          r: resumen.map(function (r) {
+            return [
+              r.employeeId || '',
+              r.employeeName || '',
+              r.role || '',
+              Number(r.contractHours || 0),
+              Number(r.workedHours || 0),
+              Number(r.saldoPeriodo || 0),
+              Number(r.saldoTotalAcumulado || 0),
+              Number(r.saldoHorasAnterior || 0)
+            ];
+          })
         };
 
-        const jsonStr = JSON.stringify(payload);
-        if (typeof btoa !== 'undefined') {
-          return btoa(unescape(encodeURIComponent(jsonStr)));
-        } else if (typeof Buffer !== 'undefined') {
-          return Buffer.from(unescape(encodeURIComponent(jsonStr))).toString('base64');
-        }
+        return b64EncodeUnicodeLocal(JSON.stringify(compactPayload));
       } else if (enlace.page === 'view_compensation') {
         const comp = (compensos || []).find(function (c) { return c.id === enlace.compensationId; });
         if (!comp) return '';
-        const payloadComp = {
+        const compactComp = {
           ok: true,
-          tipo: 'compensacion',
-          enlace: { nombre: enlace.name, token: enlace.token },
-          compensacion: comp
+          t: 'c',
+          e: { n: enlace.name, k: enlace.token },
+          co: comp
         };
-        const jsonStrComp = JSON.stringify(payloadComp);
-        if (typeof btoa !== 'undefined') {
-          return btoa(unescape(encodeURIComponent(jsonStrComp)));
-        } else if (typeof Buffer !== 'undefined') {
-          return Buffer.from(unescape(encodeURIComponent(jsonStrComp))).toString('base64');
-        }
+        return b64EncodeUnicodeLocal(JSON.stringify(compactComp));
       }
     } catch (e) {
       console.warn('Aviso al empaquetar enlace:', e);
@@ -803,7 +837,7 @@
         const compensos = getLocalJson(STORAGE_KEYS.COMPENSOS, []);
         enlaces.forEach(function (e) {
           const d = empaquetarPayloadLocal(e, cals, emps, compensos);
-          e.url = baseUrl + (e.page === 'view_compensation' ? 'view.html?page=view_compensation&token=' : 'view.html?page=view_schedule&token=') + encodeURIComponent(e.token) + (d ? ('&d=' + encodeURIComponent(d)) : '');
+          e.url = baseUrl + (e.page === 'view_compensation' ? 'view.html?page=view_compensation&token=' : 'view.html?page=view_schedule&token=') + encodeURIComponent(e.token) + (d ? ('#d=' + encodeURIComponent(d)) : '');
         });
 
         return {
@@ -1455,9 +1489,10 @@
           phone: emp.phone,
           active: true,
           createdAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + diasVal * 86400000).toISOString(),
-          url: baseUrl + 'view.html?page=view_compensation&token=' + encodeURIComponent(token)
+          expiresAt: new Date(Date.now() + diasVal * 86400000).toISOString()
         };
+        const dComp = empaquetarPayloadLocal(enlaceObj, cals, emps, compensos);
+        enlaceObj.url = baseUrl + 'view.html?page=view_compensation&token=' + encodeURIComponent(token) + (dComp ? ('#d=' + encodeURIComponent(dComp)) : '');
 
         const enlaces = getLocalJson(STORAGE_KEYS.ENLACES, []);
         enlaces.push(enlaceObj);
@@ -1515,7 +1550,7 @@
           expiresAt: new Date(Date.now() + 45 * 86400000).toISOString()
         };
         const dGen = empaquetarPayloadLocal(enGen, cals, emps, []);
-        enGen.url = baseUrl + 'view.html?page=view_schedule&token=' + encodeURIComponent(tokenGen) + (dGen ? ('&d=' + encodeURIComponent(dGen)) : '');
+        enGen.url = baseUrl + 'view.html?page=view_schedule&token=' + encodeURIComponent(tokenGen) + (dGen ? ('#d=' + encodeURIComponent(dGen)) : '');
         enlaces.push(enGen);
 
         emps.forEach(function (emp) {
@@ -1535,7 +1570,7 @@
             expiresAt: new Date(Date.now() + 45 * 86400000).toISOString()
           };
           const dInd = empaquetarPayloadLocal(enInd, cals, emps, []);
-          enInd.url = baseUrl + 'view.html?page=view_schedule&token=' + encodeURIComponent(tInd) + (dInd ? ('&d=' + encodeURIComponent(dInd)) : '');
+          enInd.url = baseUrl + 'view.html?page=view_schedule&token=' + encodeURIComponent(tInd) + (dInd ? ('#d=' + encodeURIComponent(dInd)) : '');
           enlaces.push(enInd);
         });
 
