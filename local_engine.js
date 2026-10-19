@@ -34,9 +34,12 @@
       phone: '+34 676 44 92 13',
       email: '',
       dept: 'SALA',
-      depts: ['SALA'],
+      rolPrincipal: 'SALA',
+      rolSecundario: 'COCINA',
+      depts: ['SALA', 'COCINA'],
       hours: 40,
       active: true,
+      diasLibres: 1,
       prefShift: ['Cualquiera'],
       exclShift: [],
       exclDay: [],
@@ -48,9 +51,12 @@
       phone: '+34 632 41 09 21',
       email: '',
       dept: 'PIZZERIA',
+      rolPrincipal: 'PIZZERIA',
+      rolSecundario: null,
       depts: ['PIZZERIA'],
       hours: 40,
       active: true,
+      diasLibres: 1,
       prefShift: ['Cualquiera'],
       exclShift: [],
       exclDay: [],
@@ -62,9 +68,12 @@
       phone: '+34 610 19 41 62',
       email: '',
       dept: 'COCINA',
+      rolPrincipal: 'COCINA',
+      rolSecundario: null,
       depts: ['COCINA'],
       hours: 40,
       active: true,
+      diasLibres: 1,
       prefShift: ['Cualquiera'],
       exclShift: [],
       exclDay: [],
@@ -76,9 +85,12 @@
       phone: '+34 654 44 25 99',
       email: '',
       dept: 'SALA',
+      rolPrincipal: 'SALA',
+      rolSecundario: null,
       depts: ['SALA'],
       hours: 40,
       active: true,
+      diasLibres: 1,
       prefShift: ['Cualquiera'],
       exclShift: [],
       exclDay: [],
@@ -90,9 +102,12 @@
       phone: '+34 681 35 75 83',
       email: '',
       dept: 'SALA',
+      rolPrincipal: 'SALA',
+      rolSecundario: null,
       depts: ['SALA'],
       hours: 40,
       active: false,
+      diasLibres: 1,
       prefShift: ['Cualquiera'],
       exclShift: [],
       exclDay: [],
@@ -104,9 +119,12 @@
       phone: '+34 654 44 25 99',
       email: '',
       dept: 'SALA',
+      rolPrincipal: 'SALA',
+      rolSecundario: null,
       depts: ['SALA'],
       hours: 40,
       active: true,
+      diasLibres: 1,
       prefShift: ['Cualquiera'],
       exclShift: ['Mañana', 'Tarde'],
       exclDay: ['Lunes', 'Martes', 'Miércoles', 'Jueves'],
@@ -159,6 +177,33 @@
       updatedAt: new Date().toISOString()
     }
   ];
+
+  function normalizeEmpleadoDeptsLocal(emp) {
+    if (!emp) return emp;
+    const ROLES_VALIDOS = ['SALA', 'COCINA', 'PIZZERIA'];
+    let rolPrincipal = emp.rolPrincipal || emp.dept;
+    if (!rolPrincipal || ROLES_VALIDOS.indexOf(rolPrincipal) < 0) {
+      rolPrincipal = (Array.isArray(emp.depts) && emp.depts.length > 0 && ROLES_VALIDOS.indexOf(emp.depts[0]) >= 0) ? emp.depts[0] : 'SALA';
+    }
+    let rolSecundario = emp.rolSecundario;
+    if (!rolSecundario && Array.isArray(emp.depts) && emp.depts.length > 1 && ROLES_VALIDOS.indexOf(emp.depts[1]) >= 0) {
+      rolSecundario = emp.depts[1];
+    }
+    if (rolSecundario === rolPrincipal || ROLES_VALIDOS.indexOf(rolSecundario) < 0) {
+      rolSecundario = null;
+    }
+
+    const depts = [rolPrincipal];
+    if (rolSecundario) depts.push(rolSecundario);
+
+    emp.rolPrincipal = rolPrincipal;
+    emp.rolSecundario = rolSecundario;
+    emp.dept = rolPrincipal;
+    emp.depts = depts;
+    emp.diasLibres = Math.min(6, Math.max(1, Number(emp.diasLibres || 1)));
+    emp.saldoHorasAnterior = redondearLocal(Number(emp.saldoHorasAnterior || 0));
+    return emp;
+  }
 
   function getLocalJson(key, defaultVal) {
     try {
@@ -644,11 +689,31 @@
       case 'generarCalendario': {
         const datos = (args && args[1] && typeof args[1] === 'object') ? args[1] : (args && args[0] && typeof args[0] === 'object' ? args[0] : {});
         const fechas = obtenerFechasPeriodoLocal(datos.desde, datos.hasta);
-        const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []).filter(function (e) { return e.active; });
+        const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []).map(normalizeEmpleadoDeptsLocal).filter(function (e) { return e.active; });
         const asignaciones = [];
         const incidencias = [];
         const horasAsignadas = {};
-        emps.forEach(function (e) { horasAsignadas[e.id] = 0; });
+        const numSemanasPeriodo = Math.ceil(fechas.length / 7);
+        const cierres = Array.isArray(datos.cierres) ? datos.cierres : [];
+        const diasOperativosSemana = [];
+        for (let s = 0; s < numSemanasPeriodo; s++) {
+          const iniS = s * 7;
+          const finS = Math.min(fechas.length, iniS + 7);
+          let op = 0;
+          for (let f = iniS; f < finS; f++) {
+            if (cierres.indexOf(fechas[f]) < 0) op++;
+          }
+          diasOperativosSemana[s] = op;
+        }
+
+        const diasTrabajadosSemana = {};
+        emps.forEach(function (e) {
+          horasAsignadas[e.id] = 0;
+          diasTrabajadosSemana[e.id] = [];
+          for (let s = 0; s < numSemanasPeriodo; s++) {
+            diasTrabajadosSemana[e.id][s] = [];
+          }
+        });
 
         const turnos = datos.turnos || TURNOS_BASE;
         const clavesTurnos = Object.keys(turnos);
@@ -657,8 +722,9 @@
           const dObj = new Date(fStr + 'T12:00:00');
           const dayIdx = (dObj.getDay() + 6) % 7;
           const diaNom = DIAS[dayIdx];
+          const numSemana = Math.floor(idx / 7);
 
-          if (datos.cierres && datos.cierres.indexOf(fStr) >= 0) return;
+          if (cierres.indexOf(fStr) >= 0) return;
 
           clavesTurnos.forEach(function (cTurno) {
             if (datos.turnosActivosPorDia && datos.turnosActivosPorDia[diaNom] && datos.turnosActivosPorDia[diaNom][cTurno] === false) {
@@ -693,7 +759,29 @@
                 const yaAsignadoEnTurno = asignaciones.some(function (a) {
                   return a.employeeId === e.id && a.date === fStr && a.shiftKey === cTurno;
                 });
-                return matchesRole && matchesDay && matchesShift && !yaAsignadoEnTurno;
+                if (!matchesRole || !matchesDay || !matchesShift || yaAsignadoEnTurno) return false;
+
+                // F19: Controllo dei giorni liberi garantiti per settimana
+                const diasTrabajados = (diasTrabajadosSemana[e.id] && diasTrabajadosSemana[e.id][numSemana]) || [];
+                const yaTrabajaHoy = diasTrabajados.indexOf(fStr) >= 0;
+                const diasLibresGarantizados = Math.min(6, Math.max(1, Number(e.diasLibres || 1)));
+                const diasOperativos = diasOperativosSemana[numSemana] !== undefined ? diasOperativosSemana[numSemana] : 6;
+                const maxDiasPermitidos = Math.max(1, diasOperativos - diasLibresGarantizados);
+
+                if (!yaTrabajaHoy && diasTrabajados.length >= maxDiasPermitidos) {
+                  return false;
+                }
+                return true;
+              }).sort(function (a, b) {
+                // 0. PRECEDENCIA RUOLO PRINCIPALE:
+                const esPrincipalA = (a.rolPrincipal || a.dept) === rol;
+                const esPrincipalB = (b.rolPrincipal || b.dept) === rol;
+                if (esPrincipalA !== esPrincipalB) {
+                  return esPrincipalA ? -1 : 1;
+                }
+                const hA = horasAsignadas[a.id] || 0;
+                const hB = horasAsignadas[b.id] || 0;
+                return hA - hB;
               });
 
               let asignados = 0;
@@ -720,6 +808,11 @@
                     role: rol
                   });
                   horasAsignadas[emp.id] = (horasAsignadas[emp.id] || 0) + duracion;
+                  if (diasTrabajadosSemana[emp.id] && diasTrabajadosSemana[emp.id][numSemana]) {
+                    if (diasTrabajadosSemana[emp.id][numSemana].indexOf(fStr) < 0) {
+                      diasTrabajadosSemana[emp.id][numSemana].push(fStr);
+                    }
+                  }
                   asignados++;
                 }
               }
@@ -866,29 +959,52 @@
       }
 
       case 'listarEmpleados': {
-        return getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
+        const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
+        return emps.map(normalizeEmpleadoDeptsLocal);
       }
 
       case 'guardarEmpleado': {
         const datos = (args && typeof args[1] === 'object' && args[1] !== null) ? args[1] : (args && typeof args[0] === 'object' ? args[0] : {});
         const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
         const id = datos.id || generarIdLocal();
-        const depts = Array.isArray(datos.depts) ? datos.depts : [datos.dept || 'SALA'];
+
+        const ROLES_VALIDOS = ['SALA', 'COCINA', 'PIZZERIA'];
+        let depts = [];
+        if (Array.isArray(datos.depts) && datos.depts.length > 0) {
+          depts = datos.depts.filter(function(r) { return ROLES_VALIDOS.indexOf(r) >= 0; });
+        } else if (datos.dept) {
+          if (ROLES_VALIDOS.indexOf(datos.dept) >= 0) depts = [datos.dept];
+        }
+        if (!depts.length) depts = ['SALA'];
+
+        const rolPrincipal = (datos.rolPrincipal && ROLES_VALIDOS.indexOf(datos.rolPrincipal) >= 0)
+          ? datos.rolPrincipal
+          : (depts[0] || 'SALA');
+        const rolSecundario = (datos.rolSecundario && ROLES_VALIDOS.indexOf(datos.rolSecundario) >= 0 && datos.rolSecundario !== rolPrincipal)
+          ? datos.rolSecundario
+          : ((depts.length > 1 && depts[1] !== rolPrincipal) ? depts[1] : null);
+        const diasLibres = Math.min(6, Math.max(1, Number(datos.diasLibres || 1)));
+
+        const finalDepts = [rolPrincipal];
+        if (rolSecundario) finalDepts.push(rolSecundario);
 
         const empObj = {
           id: id,
-          name: datos.name,
-          phone: datos.phone || '',
-          email: datos.email || '',
-          dept: depts[0] || 'SALA',
-          depts: depts,
+          name: String(datos.name || '').trim(),
+          phone: String(datos.phone || '').trim(),
+          email: String(datos.email || '').trim(),
+          dept: rolPrincipal,
+          rolPrincipal: rolPrincipal,
+          rolSecundario: rolSecundario,
+          depts: finalDepts,
           hours: Math.max(0, Number(datos.hours) || 40),
-          maxHorasExtraSemana: datos.maxHorasExtraSemana ? Number(datos.maxHorasExtraSemana) : null,
+          maxHorasExtraSemana: (datos.maxHorasExtraSemana !== null && datos.maxHorasExtraSemana !== undefined && datos.maxHorasExtraSemana !== '' && !isNaN(Number(datos.maxHorasExtraSemana))) ? Math.max(0, Number(datos.maxHorasExtraSemana)) : null,
           saldoHorasAnterior: redondearLocal(Number(datos.saldoHorasAnterior || 0)),
+          diasLibres: diasLibres,
           active: datos.active !== false,
-          prefShift: datos.prefShift || ['Cualquiera'],
-          exclShift: datos.exclShift || [],
-          exclDay: datos.exclDay || [],
+          prefShift: Array.isArray(datos.prefShift) && datos.prefShift.length ? datos.prefShift : ['Cualquiera'],
+          exclShift: Array.isArray(datos.exclShift) ? datos.exclShift : [],
+          exclDay: Array.isArray(datos.exclDay) ? datos.exclDay : [],
           exclDayShift: Array.isArray(datos.exclDayShift) ? datos.exclDayShift : []
         };
 
