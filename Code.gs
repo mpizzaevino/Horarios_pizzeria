@@ -1011,9 +1011,18 @@ function consolidarSaldosCalendario(tokenSesion, calendarId, employeeIdTarget) {
     if (!emp) return;
 
     const saldoAnt = redondear(Number(emp.saldoHorasAnterior || 0));
-    const contractHoursEfectivas = redondear(Number(res.contractHoursEfectivas || Math.max(0, res.contractHours + saldoAnt)));
+    const esInactivo = emp.active === false || res.esInactivo;
+    const contractHoursEfectivas = esInactivo ? 0 : redondear(Number(res.contractHoursEfectivas || Math.max(0, res.contractHours + saldoAnt)));
     const difPeriodo = redondear(Number(res.workedHours) - contractHoursEfectivas);
-    const nuevoSaldo = redondear(difPeriodo < 0 ? Math.abs(difPeriodo) : 0);
+    
+    let nuevoSaldo;
+    if (esInactivo && Number(res.workedHours || 0) === 0) {
+      nuevoSaldo = saldoAnt; // Si es inactivo y no trabajó, conserva su saldo anterior sin acumular deudas
+    } else if (esInactivo) {
+      nuevoSaldo = Math.max(0, redondear(saldoAnt - Number(res.workedHours || 0)));
+    } else {
+      nuevoSaldo = redondear(difPeriodo < 0 ? Math.abs(difPeriodo) : 0);
+    }
 
     emp.saldoHorasAnterior = nuevoSaldo;
 
@@ -2042,7 +2051,8 @@ function calcularResumenCalendario(calendarioId) {
       return a.employeeId === empleado.id;
     });
 
-    const contratoSem = Number(empleado.hours || 0);
+    const esInactivo = empleado.active === false;
+    const contratoSem = esInactivo ? 0 : Number(empleado.hours || 0);
     const desgloseSemanas = [];
 
     let totContractBase = 0;
@@ -2109,17 +2119,37 @@ function calcularResumenCalendario(calendarioId) {
 
     const saldoAnterior = redondear(Number(empleado.saldoHorasAnterior || 0));
 
-    // REGLA CRÍTICA DE COMPENSACIÓN:
-    // El saldo positivo (deuda por haber trabajado menos horas en períodos anteriores)
-    // se SUMA a las horas requeridas de la nómina del período (contractHoursEfectivas).
-    // Las horas extra se computan ÚNICAMENTE sobre las horas trabajadas que superen la nómina efectiva.
-    const contractHoursEfectivas = redondear(Math.max(0, totContractHours + saldoAnterior));
-    const difPeriodo = redondear(totWorkedHours - contractHoursEfectivas);
+    let contractHoursEfectivas = redondear(Math.max(0, totContractHours + saldoAnterior));
+    let difPeriodo = redondear(totWorkedHours - contractHoursEfectivas);
     totExtraHoursTot = Math.max(0, difPeriodo);
     totExtraHoursOrd = Math.max(0, redondear(totExtraHoursTot - totWorkedFestiveHours));
-    const saldoRestante = difPeriodo < 0 ? Math.abs(difPeriodo) : 0;
-    const saldoTotalAcumulado = saldoRestante;
-    const saldoPeriodo = difPeriodo;
+    let saldoRestante = difPeriodo < 0 ? Math.abs(difPeriodo) : 0;
+    let saldoTotalAcumulado = saldoRestante;
+    let saldoPeriodo = difPeriodo;
+
+    // REGLA CRÍTICA PARA EMPLEADOS INACTIVOS:
+    // Si el empleado está inactivo en este calendario, no tiene cuota de contrato
+    // y NO acumula deudas ni déficit de horas (difPeriodo = 0, nuevo saldo = saldo anterior).
+    if (esInactivo) {
+      contractHoursEfectivas = 0;
+      if (totWorkedHours === 0) {
+        difPeriodo = 0;
+        totExtraHoursTot = 0;
+        totExtraHoursOrd = 0;
+        totCompensoOrd = 0;
+        totCompensoFest = 0;
+        saldoRestante = saldoAnterior;
+        saldoTotalAcumulado = saldoAnterior;
+        saldoPeriodo = 0;
+      } else {
+        difPeriodo = totWorkedHours;
+        totExtraHoursTot = totWorkedHours;
+        totExtraHoursOrd = Math.max(0, redondear(totWorkedHours - totWorkedFestiveHours));
+        saldoRestante = Math.max(0, redondear(saldoAnterior - totWorkedHours));
+        saldoTotalAcumulado = saldoRestante;
+        saldoPeriodo = totWorkedHours;
+      }
+    }
 
     totCompensoOrd = redondear2Decimales_(totExtraHoursOrd * precioHoraExtra);
     totCompensoFest = redondear2Decimales_(totWorkedFestiveHours * precioHoraFestiva);
@@ -2132,10 +2162,11 @@ function calcularResumenCalendario(calendarioId) {
     resumen.push({
       employeeId: empleado.id,
       employeeName: empleado.name,
+      active: !esInactivo,
+      esInactivo: esInactivo,
       role: roleList,
       contractHours: totContractHours,
       contractHoursBase: totContractBase,
-      contractHoursEfectivas: contractHoursEfectivas,
       contractHoursEfectivas: contractHoursEfectivas,
       giorniLavorativiBase: diasBase,
       oreGiornaliereBase: redondear(contratoSem / diasBase),

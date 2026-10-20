@@ -1581,14 +1581,14 @@
           <p class="texto-gris" style="font-size:12px; margin-bottom:14px;">
             El saldo negativo (débito) incrementa las horas a realizar en el próximo calendario. El saldo positivo (crédito) indica horas extra acumuladas.
           </p>
-          <div id="resumenSaldosActualesEmp" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:14px;"></div>
+          <div id="resumenSaldosActualesEmp" style="display:flex; gap:14px; overflow-x:auto; padding-bottom:14px; scrollbar-width:thin;"></div>
         </div>
 
-        <div class="tarjeta tabla-contenedor">
+        <div class="tarjeta tabla-contenedor" style="overflow-x:auto;">
           <h3 style="margin-bottom:12px;">📋 Registro histórico de movimientos de saldo</h3>
-          <table>
+          <table style="min-width:980px; width:100%;">
             <thead>
-              <tr>
+              <tr style="white-space:nowrap;">
                 <th>Fecha</th>
                 <th>Empleado</th>
                 <th>Período / Calendario</th>
@@ -4643,15 +4643,19 @@
 
           const contEmp = document.getElementById('contenidoResumenHorasEmpUI');
           if (contEmp && Array.isArray(resumen)) {
-            contEmp.innerHTML = '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">' +
+            contEmp.innerHTML = '<div style="display:flex; gap:12px; overflow-x:auto; padding-bottom:10px; scrollbar-width:thin;">' +
               resumen.map(function(r) {
                 const sPer = Number(r.saldoPeriodo || 0);
                 const sTot = Number(r.saldoTotalAcumulado || 0);
-                return '<div style="background:white; border:1px solid #e0d7c8; padding:10px; border-radius:8px;">' +
-                  '<strong style="color:#2c3e50; font-size:13px;">' + textoSeguro(r.employeeName) + '</strong>' +
+                const esInact = r.active === false || r.esInactivo;
+                return '<div style="flex:0 0 240px; min-width:240px; background:white; border:1px solid #e0d7c8; padding:10px; border-radius:8px;">' +
+                  '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                    '<strong style="color:#2c3e50; font-size:13px;">' + textoSeguro(r.employeeName) + '</strong>' +
+                    (esInact ? '<span style="background:#fee2e2; color:#991b1b; padding:1px 5px; border-radius:4px; font-size:10px; font-weight:bold;">Inactivo</span>' : '') +
+                  '</div>' +
                   '<div style="font-size:11px; color:#7f8c8d; margin-bottom:4px;">' + textoSeguro(r.role || '') + '</div>' +
-                  '<div style="font-size:11px;">Contrato: <strong>' + numero(r.contractHours) + ' h</strong>' +
-                  (r.festivosCount > 0 ? ' <span style="color:#0369a1; font-size:10px;" title="Base ' + numero(r.contractHoursBase) + 'h - ' + numero(r.festivosDeduction) + 'h (' + r.festivosCount + ' festivo' + (r.festivosCount > 1 ? 's' : '') + ')">(-' + numero(r.festivosDeduction) + 'h fest)</span>' : '') +
+                  '<div style="font-size:11px;">Contrato: <strong>' + (esInact ? '0 h (Inactivo)' : (numero(r.contractHours) + ' h')) + '</strong>' +
+                  (esInact ? '' : (r.festivosCount > 0 ? ' <span style="color:#0369a1; font-size:10px;" title="Base ' + numero(r.contractHoursBase) + 'h - ' + numero(r.festivosDeduction) + 'h (' + r.festivosCount + ' festivo' + (r.festivosCount > 1 ? 's' : '') + ')">(-' + numero(r.festivosDeduction) + 'h fest)</span>' : '')) +
                   '</div>' +
                   '<div style="font-size:11px;">Trabajadas: <strong>' + numero(r.workedHours) + ' h</strong></div>' +
                   (r.saldoHorasAnterior ? '<div style="font-size:11px; color:' + (r.saldoHorasAnterior>=0?'#27ae60':'#c0392b') + ';">Saldo anterior: <strong>' + (r.saldoHorasAnterior>=0?'+':'') + numero(r.saldoHorasAnterior) + ' h</strong></div>' : '') +
@@ -6480,9 +6484,9 @@
           '    💾 Consolidar y registrar todos los saldos en el Historial' +
           '  </button>' +
           '</div>' +
-          '<div class="tabla-contenedor">' +
-          '<table>' +
-          '<thead><tr>' +
+          '<div class="tabla-contenedor" style="overflow-x:auto;">' +
+          '<table style="min-width:1150px; width:100%;">' +
+          '<thead><tr style="white-space:nowrap;">' +
           '<th>Empleado</th>' +
           '<th>H. Nómina Base</th>' +
           '<th>Saldo Anterior (Débito)</th>' +
@@ -6498,8 +6502,9 @@
           '</tr></thead>' +
           '<tbody>' +
           datos.empleados.map(function (empleado) {
+            const esInactivo = empleado.active === false || empleado.esInactivo;
             const saldoAnt = Number(empleado.saldoHorasAnterior || 0);
-            const contractHoursEfectivas = Number(empleado.contractHoursEfectivas || Math.max(0, Number(empleado.contractHours || 0) + saldoAnt));
+            const contractHoursEfectivas = esInactivo ? 0 : Number(empleado.contractHoursEfectivas || Math.max(0, Number(empleado.contractHours || 0) + saldoAnt));
             const saldoPer = Number(empleado.saldoPeriodo || 0);
             const saldoTot = Number(empleado.saldoTotalAcumulado || 0);
             const saldoTipo = saldoPer > 0.01 ? 'extra' : (saldoPer < -0.01 ? 'deficit' : 'ok');
@@ -6511,13 +6516,15 @@
 
             return (
               '<tr class="fila-compenso" data-employee="' + textoSeguro(empleado.employeeName) + '" data-saldo-tipo="' + saldoTipo + '">' +
-              '<td><strong>' + textoSeguro(empleado.employeeName) + '</strong><br>' +
+              '<td style="white-space:nowrap;"><strong>' + textoSeguro(empleado.employeeName) + '</strong>' +
+              (esInactivo ? ' <span style="background:#fee2e2; color:#991b1b; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:bold;">Inactivo</span>' : '') +
+              '<br>' +
               '<span class="texto-gris" style="font-size:11px;">' + textoSeguro(empleado.role) + '</span>' +
               '</td>' +
-              '<td><strong>' + numero(empleado.contractHours) + ' h</strong>' +
-              (empleado.festivosCount > 0
+              '<td><strong>' + (esInactivo ? '0 h <span style="font-size:10px; color:#991b1b;">(Inactivo)</span>' : (numero(empleado.contractHours) + ' h')) + '</strong>' +
+              (esInactivo ? '' : (empleado.festivosCount > 0
                 ? ('<br><span style="font-size:10px; color:#0369a1;" title="Base ' + numero(empleado.contractHoursBase) + 'h - deducción de ' + numero(empleado.festivosDeduction) + 'h por ' + empleado.festivosCount + ' festivo(s)">Base ' + numero(empleado.contractHoursBase) + 'h - ' + numero(empleado.festivosDeduction) + 'h fest.</span>')
-                : ('<br><span class="texto-gris" style="font-size:10px;">Base ' + numero(empleado.contractHoursBase) + 'h</span>')) +
+                : ('<br><span class="texto-gris" style="font-size:10px;">Base ' + numero(empleado.contractHoursBase) + 'h</span>'))) +
               '</td>' +
               '<td>' +
               '<span style="font-weight:bold; color:' + (saldoAnt > 0 ? '#b91c1c' : '#15803d') + ';">' + (saldoAnt > 0 ? '+' : '') + numero(saldoAnt) + ' h</span>' +
@@ -6850,17 +6857,21 @@
           } else {
             contResumen.innerHTML = empleados.map(function(e) {
               const saldo = Number(e.saldoHorasAnterior || 0);
+              const esInactivo = e.active === false;
               const colorSaldo = saldo > 0 ? '#b91c1c' : (saldo < 0 ? '#1d4ed8' : '#15803d');
               const borderColor = saldo > 0 ? '#fca5a5' : (saldo < 0 ? '#bfdbfe' : '#bbf7d0');
               const bgColor = saldo > 0 ? '#fef2f2' : (saldo < 0 ? '#eff6ff' : '#f0fdf4');
-              return '<div style="background:' + bgColor + '; border:1px solid ' + borderColor + '; border-left:4px solid ' + colorSaldo + '; padding:14px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">' +
-                '<div style="font-weight:bold; font-size:14px; color:var(--vino);">' + textoSeguro(e.name) + '</div>' +
-                '<div style="font-size:11px; color:#7f8c8d;">Contrato: ' + numero(e.hours || 0) + ' h/sem</div>' +
+              return '<div style="flex:0 0 250px; min-width:250px; background:' + bgColor + '; border:1px solid ' + borderColor + '; border-left:4px solid ' + colorSaldo + '; padding:14px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">' +
+                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                  '<div style="font-weight:bold; font-size:14px; color:var(--vino);">' + textoSeguro(e.name) + '</div>' +
+                  (esInactivo ? '<span style="background:#fee2e2; color:#991b1b; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:bold;">Inactivo</span>' : '') +
+                '</div>' +
+                '<div style="font-size:11px; color:#7f8c8d; margin-top:2px;">Contrato: ' + (esInactivo ? '0 h (Inactivo)' : (numero(e.hours || 0) + ' h/sem')) + '</div>' +
                 '<div style="margin-top:6px; font-weight:bold; font-size:13px; color:' + colorSaldo + ';">' +
                 'Saldo acumulado: ' + (saldo > 0 ? '+' : '') + numero(saldo) + ' h' +
                 '</div>' +
                 '<div style="font-size:11px; margin-top:3px; font-weight:600; color:' + colorSaldo + ';">' +
-                (saldo > 0 ? '⚠️ Débito: ' + numero(saldo) + ' h a compensar (se sumarán a nómina próx. mes)' : (saldo < 0 ? '⚡ Crédito: ' + numero(Math.abs(saldo)) + ' h a favor' : '✅ Al día (sin horas pendientes)')) +
+                (saldo > 0 ? '⚠️ Débito: ' + numero(saldo) + ' h a compensar' : (saldo < 0 ? '⚡ Crédito: ' + numero(Math.abs(saldo)) + ' h a favor' : '✅ Al día (sin horas pendientes)')) +
                 '</div>' +
                 '</div>';
             }).join('');

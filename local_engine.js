@@ -467,7 +467,8 @@
 
     emps.forEach(function (emp) {
       const turnosEmp = (cal.asignaciones || []).filter(function (a) { return a.employeeId === emp.id; });
-      const contratoSem = Number(emp.hours || 0);
+      const esInactivo = emp.active === false;
+      const contratoSem = esInactivo ? 0 : Number(emp.hours || 0);
       const desgloseSemanas = [];
 
       let totContractBase = 0;
@@ -533,22 +534,38 @@
 
       const saldoAnt = redondearLocal(Number(emp.saldoHorasAnterior || 0));
 
-      // REGLA CRÍTICA DE COMPENSACIÓN:
-      // Si el trabajador tiene saldo positivo (deuda por haber trabajado menos horas en períodos anteriores),
-      // este saldo se SUMA a las horas de la nómina requeridas en este período (contractHoursEfectivas).
-      // Las horas extra se computan ÚNICAMENTE sobre las horas trabajadas que superen la nómina efectiva.
-      const contractHoursEfectivas = redondearLocal(Math.max(0, totContractHours + saldoAnt));
-      
-      const difPeriodo = redondearLocal(totWorked - contractHoursEfectivas);
-      // Horas extra totales del período: solo el excedente sobre la nómina efectiva
+      let contractHoursEfectivas = redondearLocal(Math.max(0, totContractHours + saldoAnt));
+      let difPeriodo = redondearLocal(totWorked - contractHoursEfectivas);
       totExtraTot = Math.max(0, difPeriodo);
-      // Las horas extra ordinarias descuentan las horas festivas trabajadas (que se pagan a tarifa festiva)
       totExtraOrd = Math.max(0, redondearLocal(totExtraTot - totFestWorked));
 
-      // Saldo restante: si no alcanzó las horas requeridas (difPeriodo < 0), la diferencia pasa como saldo a recuperar
-      const saldoRestante = difPeriodo < 0 ? Math.abs(difPeriodo) : 0;
-      const saldoTotAcum = saldoRestante;
-      const saldoPer = difPeriodo;
+      let saldoRestante = difPeriodo < 0 ? Math.abs(difPeriodo) : 0;
+      let saldoTotAcum = saldoRestante;
+      let saldoPer = difPeriodo;
+
+      // REGLA CRÍTICA PARA EMPLEADOS INACTIVOS:
+      // Si el empleado está inactivo en este calendario, no tiene cuota de contrato
+      // y NO acumula deudas ni déficit de horas (difPeriodo = 0, nuevo saldo = saldo anterior).
+      if (esInactivo) {
+        contractHoursEfectivas = 0;
+        if (totWorked === 0) {
+          difPeriodo = 0;
+          totExtraTot = 0;
+          totExtraOrd = 0;
+          totCompOrd = 0;
+          totCompFest = 0;
+          saldoRestante = saldoAnt;
+          saldoTotAcum = saldoAnt;
+          saldoPer = 0;
+        } else {
+          difPeriodo = totWorked;
+          totExtraTot = totWorked;
+          totExtraOrd = Math.max(0, redondearLocal(totWorked - totFestWorked));
+          saldoRestante = Math.max(0, redondearLocal(saldoAnt - totWorked));
+          saldoTotAcum = saldoRestante;
+          saldoPer = totWorked;
+        }
+      }
 
       totCompOrd = redondear2DecLocal(totExtraOrd * pNorm);
       totCompFest = redondear2DecLocal(totFestWorked * pFest);
@@ -559,6 +576,8 @@
       resumen.push({
         employeeId: emp.id,
         employeeName: emp.name,
+        active: !esInactivo,
+        esInactivo: esInactivo,
         role: roleList,
         contractHours: totContractHours,
         contractHoursBase: totContractBase,
@@ -1744,12 +1763,18 @@
           if (!emp) return;
 
           const saldoAnt = redondearLocal(Number(emp.saldoHorasAnterior || 0));
-          const contractHoursEfectivas = redondearLocal(Number(res.contractHoursEfectivas || Math.max(0, res.contractHours + saldoAnt)));
+          const esInactivo = emp.active === false || res.esInactivo;
+          const contractHoursEfectivas = esInactivo ? 0 : redondearLocal(Number(res.contractHoursEfectivas || Math.max(0, res.contractHours + saldoAnt)));
           const difPeriodo = redondearLocal(Number(res.workedHours) - contractHoursEfectivas);
           
-          // Si difPeriodo < 0, trabajó menos horas de las requeridas: queda debiendo la diferencia.
-          // Si difPeriodo >= 0, completó sus horas y cubrió cualquier saldo pendiente: saldo 0.
-          const nuevoSaldo = redondearLocal(difPeriodo < 0 ? Math.abs(difPeriodo) : 0);
+          let nuevoSaldo;
+          if (esInactivo && Number(res.workedHours || 0) === 0) {
+            nuevoSaldo = saldoAnt; // Si es inactivo y no trabajó, conserva su saldo anterior sin acumular deudas
+          } else if (esInactivo) {
+            nuevoSaldo = Math.max(0, redondearLocal(saldoAnt - Number(res.workedHours || 0)));
+          } else {
+            nuevoSaldo = redondearLocal(difPeriodo < 0 ? Math.abs(difPeriodo) : 0);
+          }
 
           emp.saldoHorasAnterior = nuevoSaldo;
 

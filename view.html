@@ -195,8 +195,8 @@
     .total-chip { font-size: 12px; font-weight: 700; }
     .total-chip.extra { color: var(--naranja); }
 
-    .resumen-global { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 18px; }
-    .resumen-empleado { padding: 14px; border: 1px solid var(--borde); border-radius: 10px; background: white; }
+    .resumen-global { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px; margin-top: 18px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+    .resumen-empleado { flex: 0 0 210px; min-width: 210px; padding: 14px; border: 1px solid var(--borde); border-radius: 10px; background: white; }
     .resumen-empleado h4 { font-size: 13px; margin-bottom: 6px; }
     .resumen-empleado .rol { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--naranja); margin-bottom: 8px; }
     .resumen-empleado .linea { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px; }
@@ -678,11 +678,11 @@
         html += '<div class="resumen-global">';
         resumen.forEach(function(r) {
           var saldoPer = round2(r.saldoPeriodo || 0);
-          var saldoTot = round2(r.saldoTotalAcumulado || 0);
+          var esInact = r.esInactivo || r.active === false;
           html += '<div class="resumen-empleado">';
-          html += '<h4>'+escaparHTML(r.employeeName)+'</h4>';
+          html += '<h4>'+escaparHTML(r.employeeName)+(esInact ? ' <span style="font-size:10px; background:#fee2e2; color:#991b1b; padding:1px 5px; border-radius:4px;">Inactivo</span>' : '')+'</h4>';
           html += '<div class="rol">'+escaparHTML(r.role)+'</div>';
-          html += '<div class="linea"><span>Contrato:</span><span>'+numero(r.contractHours)+' h</span></div>';
+          html += '<div class="linea"><span>Contrato:</span><span>'+(esInact ? '0 h (Inactivo)' : (numero(r.contractHours)+' h'))+'</span></div>';
           html += '<div class="linea"><span>Trabajadas:</span><span>'+numero(r.workedHours)+' h</span></div>';
           if (r.saldoHorasAnterior) {
             html += '<div class="linea"><span>Saldo anterior:</span><span style="color:'+(r.saldoHorasAnterior>=0?'var(--verde)':'#d93025')+';">'+(r.saldoHorasAnterior>=0?'+':'')+numero(r.saldoHorasAnterior)+' h</span></div>';
