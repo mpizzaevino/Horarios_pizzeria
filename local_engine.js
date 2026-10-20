@@ -1195,7 +1195,8 @@
               Number(r.workedHours || 0),
               Number(r.saldoPeriodo || 0),
               Number(r.saldoTotalAcumulado || 0),
-              Number(r.saldoHorasAnterior || 0)
+              Number(r.saldoHorasAnterior || 0),
+              r.esInactivo ? 1 : 0
             ];
           })
         };
@@ -1219,7 +1220,11 @@
   }
 
   function getBaseUrlLocal() {
-    return window.location.href.split('?')[0].replace(/index\.html$/i, '');
+    let base = window.location.href.split('?')[0].split('#')[0].replace(/index\.html$/i, '');
+    if (!base.endsWith('/')) {
+      base += '/';
+    }
+    return base;
   }
 
   // Motore di esecuzione locale per GitHub Pages
@@ -1272,6 +1277,7 @@
           enlaces: enlaces,
           plantillas: plantillas,
           ajustes: ajustes,
+          compensos: compensos,
           urlApp: baseUrl,
           almacenamiento: calcularAlmacenamientoLocal()
         };
@@ -1960,10 +1966,10 @@
       case 'crearEnlacesCalendario': {
         const calId = args[1];
         const cals = getLocalJson(STORAGE_KEYS.CALENDARIOS, []);
-        const cal = cals.find(function (c) { return c.id === calId; });
+        const cal = cals.find(function (c) { return String(c.id) === String(calId); });
         if (!cal) throw new Error('Calendario no encontrado.');
 
-        const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []).filter(function (e) { return e.active; });
+        const todosEmps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
         const enlaces = getLocalJson(STORAGE_KEYS.ENLACES, []);
         const baseUrl = getBaseUrlLocal();
 
@@ -1981,11 +1987,16 @@
           createdAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + 45 * 86400000).toISOString()
         };
-        const dGen = empaquetarPayloadLocal(enGen, cals, emps, []);
+        const dGen = empaquetarPayloadLocal(enGen, cals, todosEmps, []);
         enGen.url = baseUrl + 'view.html?page=view_schedule&token=' + encodeURIComponent(tokenGen) + (dGen ? ('#z=' + encodeURIComponent(dGen)) : '');
         enlaces.push(enGen);
 
-        emps.forEach(function (emp) {
+        const empsParaLinks = todosEmps.filter(function (e) {
+          const tieneTurnos = (cal.asignaciones || []).some(function (a) { return String(a.employeeId) === String(e.id); });
+          return e.active !== false || tieneTurnos;
+        });
+
+        empsParaLinks.forEach(function (emp) {
           const tInd = 'tok_' + Math.random().toString(36).substring(2, 12);
           const enInd = {
             id: generarIdLocal(),
@@ -2001,7 +2012,7 @@
             createdAt: new Date().toISOString(),
             expiresAt: new Date(Date.now() + 45 * 86400000).toISOString()
           };
-          const dInd = empaquetarPayloadLocal(enInd, cals, emps, []);
+          const dInd = empaquetarPayloadLocal(enInd, cals, todosEmps, []);
           enInd.url = baseUrl + 'view.html?page=view_schedule&token=' + encodeURIComponent(tInd) + (dInd ? ('#z=' + encodeURIComponent(dInd)) : '');
           enlaces.push(enInd);
         });
@@ -2012,7 +2023,7 @@
 
         return {
           ok: true,
-          total: emps.length + 1,
+          total: empsParaLinks.length + 1,
           urlGeneral: enGen.url
         };
       }

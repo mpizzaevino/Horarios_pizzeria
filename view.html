@@ -678,7 +678,8 @@
         html += '<div class="resumen-global">';
         resumen.forEach(function(r) {
           var saldoPer = round2(r.saldoPeriodo || 0);
-          var esInact = r.esInactivo || r.active === false;
+          var saldoTot = round2(r.saldoTotalAcumulado || 0);
+          var esInact = r.esInactivo === 1 || r.esInactivo === true || r.active === false;
           html += '<div class="resumen-empleado">';
           html += '<h4>'+escaparHTML(r.employeeName)+(esInact ? ' <span style="font-size:10px; background:#fee2e2; color:#991b1b; padding:1px 5px; border-radius:4px;">Inactivo</span>' : '')+'</h4>';
           html += '<div class="rol">'+escaparHTML(r.role)+'</div>';
@@ -1369,7 +1370,8 @@
                 workedHours: item[4],
                 saldoPeriodo: item[5],
                 saldoTotalAcumulado: item[6],
-                saldoHorasAnterior: item[7] || 0
+                saldoHorasAnterior: item[7] || 0,
+                esInactivo: item[8] !== undefined ? Boolean(item[8]) : false
               };
             }
             return item;
