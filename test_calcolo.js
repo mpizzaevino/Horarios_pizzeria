@@ -121,6 +121,96 @@ if (superati === verifiche.length) {
   process.exit(1);
 }
 
+
+
+// =====================================================
+// UNIT TEST AGGIUNTIVI: PUNTO 4 CORREZIONI COMPENSO (AJUSTE & DÉBITO)
+// =====================================================
+console.log('\n=====================================================');
+console.log('UNIT TEST: PUNTO 4 - AJUSTE ORE EXTRA & DEDUZIONE DEBITO');
+console.log('=====================================================');
+
+function calcolaAjusteCompenso(debitoActual, extraActual, ajusteManual) {
+  const debito = Math.max(0, Number(debitoActual || 0));
+  const extra = Math.max(0, Number(extraActual || 0));
+  const ajuste = Number(ajusteManual || 0);
+
+  let horasDeducidasDebito = 0;
+  let saldoRestanteDebito = debito;
+  let horasFinalesOrdinarie = extra;
+
+  if (ajuste > 0) {
+    if (debito > 0) {
+      horasDeducidasDebito = Math.min(ajuste, debito);
+      saldoRestanteDebito = Math.round((debito - horasDeducidasDebito) * 100) / 100;
+      const sobranteExtra = Math.round((ajuste - horasDeducidasDebito) * 100) / 100;
+      horasFinalesOrdinarie = Math.round((extra + sobranteExtra) * 100) / 100;
+    } else {
+      horasFinalesOrdinarie = Math.round((extra + ajuste) * 100) / 100;
+      saldoRestanteDebito = 0;
+    }
+  } else if (ajuste < 0) {
+    const absAjuste = Math.abs(ajuste);
+    if (extra >= absAjuste) {
+      horasFinalesOrdinarie = Math.round((extra - absAjuste) * 100) / 100;
+    } else {
+      horasFinalesOrdinarie = 0;
+      const deficitExtra = Math.round((absAjuste - extra) * 100) / 100;
+      saldoRestanteDebito = Math.round((debito + deficitExtra) * 100) / 100;
+    }
+  }
+
+  return {
+    horasFinalesOrdinarie: horasFinalesOrdinarie,
+    saldoRestanteDebito: saldoRestanteDebito,
+    horasDeducidasDebito: horasDeducidasDebito
+  };
+}
+
+const testCasesAjuste = [
+  {
+    nome: 'Debito 3h, ajuste +1h -> 1h detratta dal debito, debito residuo 2h, 0h extra pagate',
+    input: [3, 0, 1],
+    atteso: { horasFinalesOrdinarie: 0, saldoRestanteDebito: 2, horasDeducidasDebito: 1 }
+  },
+  {
+    nome: 'Debito 3h, ajuste +3h -> 3h detratte dal debito, debito azzerato (0h), 0h extra pagate',
+    input: [3, 0, 3],
+    atteso: { horasFinalesOrdinarie: 0, saldoRestanteDebito: 0, horasDeducidasDebito: 3 }
+  },
+  {
+    nome: 'Debito 3h, ajuste +5h -> 3h azzerano il debito, le 2h eccedenti vanno a ore extra pagate',
+    input: [3, 0, 5],
+    atteso: { horasFinalesOrdinarie: 2, saldoRestanteDebito: 0, horasDeducidasDebito: 3 }
+  },
+  {
+    nome: 'Debito 0h, ore extra 2h, ajuste +1.5h -> si somma direttamente alle ore extra (3.5h pagate)',
+    input: [0, 2, 1.5],
+    atteso: { horasFinalesOrdinarie: 3.5, saldoRestanteDebito: 0, horasDeducidasDebito: 0 }
+  },
+  {
+    nome: 'Debito 0h, ore extra 0h, ajuste +2h -> si aggiungono 2h alle ore extra pagate',
+    input: [0, 0, 2],
+    atteso: { horasFinalesOrdinarie: 2, saldoRestanteDebito: 0, horasDeducidasDebito: 0 }
+  }
+];
+
+let superatiAjuste = 0;
+testCasesAjuste.forEach(tc => {
+  const res = calcolaAjusteCompenso(tc.input[0], tc.input[1], tc.input[2]);
+  const ok = res.horasFinalesOrdinarie === tc.atteso.horasFinalesOrdinarie &&
+             res.saldoRestanteDebito === tc.atteso.saldoRestanteDebito &&
+             res.horasDeducidasDebito === tc.atteso.horasDeducidasDebito;
+  if (ok) superatiAjuste++;
+  console.log('[' + (ok ? 'PASS' : 'FAIL') + '] ' + tc.nome);
+});
+
+console.log('-----------------------------------------------------');
+console.log('Totale test Ajuste superati: ' + superatiAjuste + ' / ' + testCasesAjuste.length);
+if (superatiAjuste !== testCasesAjuste.length) {
+  process.exit(1);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     calcolaSettimanaHosteleria,

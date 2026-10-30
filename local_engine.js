@@ -1856,8 +1856,38 @@
         const pNorm = Number(datos.pricePerHour !== undefined ? datos.pricePerHour : (ajustes.precioHoraExtra || 8.50));
         const pFest = Number(datos.pricePerFestiveHour !== undefined ? datos.pricePerFestiveHour : (ajustes.precioHoraFestiva || 11.60));
 
+        const debitoActual = Math.max(0, Number(resumen.saldoTotalAcumulado || 0));
+        const extraActual = Math.max(0, Number(resumen.extraHours || 0));
         const adj = Number(datos.manualAdjustment || 0);
-        const finalOrd = Math.max(0, redondearLocal((resumen.extraHours || 0) + adj));
+
+        // REGLA CRÍTICA (Corrección 4):
+        // Se si aggiunge un ora extra in "ajuste" nel generare un compenso:
+        // quest'ora si deve sottrarre alle ore di debito (se ci sono) o aggiungere alle ore extra
+        let horasDeducidasDebito = 0;
+        let saldoRestanteDebito = debitoActual;
+        let finalOrd = extraActual;
+
+        if (adj > 0) {
+          if (debitoActual > 0) {
+            horasDeducidasDebito = Math.min(adj, debitoActual);
+            saldoRestanteDebito = redondearLocal(debitoActual - horasDeducidasDebito);
+            const sobranteExtra = redondearLocal(adj - horasDeducidasDebito);
+            finalOrd = redondearLocal(extraActual + sobranteExtra);
+          } else {
+            finalOrd = redondearLocal(extraActual + adj);
+            saldoRestanteDebito = 0;
+          }
+        } else if (adj < 0) {
+          const absAjuste = Math.abs(adj);
+          if (extraActual >= absAjuste) {
+            finalOrd = redondearLocal(extraActual - absAjuste);
+          } else {
+            finalOrd = 0;
+            const deficitExtra = redondearLocal(absAjuste - extraActual);
+            saldoRestanteDebito = redondearLocal(debitoActual + deficitExtra);
+          }
+        }
+
         const finalFest = redondearLocal(resumen.workedFestiveHours || 0);
         const compOrd = redondear2DecLocal(finalOrd * pNorm);
         const compFest = redondear2DecLocal(finalFest * pFest);
@@ -1885,6 +1915,8 @@
           saldoHorasAnterior: resumen.saldoHorasAnterior || 0,
           saldoPeriodo: resumen.saldoPeriodo || 0,
           saldoTotalAcumulado: resumen.saldoTotalAcumulado || 0,
+          debitoPrevio: debitoActual,
+          debitoDeducido: horasDeducidasDebito,
           automaticExtraHours: resumen.extraHours || 0,
           manualAdjustment: adj,
           finalExtraHours: finalOrd,
@@ -1895,21 +1927,15 @@
           totalAmount: tot,
           desgloseSemanas: resumen.desgloseSemanas || [],
           justification: datos.justification || '',
+          saldoRestante: saldoRestanteDebito,
           createdAt: new Date().toISOString()
         };
-
-        const saldoAnt = redondearLocal(Number(emp.saldoHorasAnterior || 0));
-        const contractHoursEfectivas = Number(resumen.contractHoursEfectivas || (resumen.contractHours + saldoAnt));
-        const difPeriodo = redondearLocal(resumen.workedHours - contractHoursEfectivas);
-        const saldoRestante = redondearLocal(difPeriodo < 0 ? Math.abs(difPeriodo) : (adj < 0 ? Math.abs(adj) : 0));
-        compObj.saldoRestante = saldoRestante;
-        compObj.contractHoursEfectivas = contractHoursEfectivas;
 
         const compensos = getLocalJson(STORAGE_KEYS.COMPENSOS, []);
         compensos.push(compObj);
         setLocalJson(STORAGE_KEYS.COMPENSOS, compensos);
 
-        emp.saldoHorasAnterior = saldoRestante;
+        emp.saldoHorasAnterior = saldoRestanteDebito;
         setLocalJson(STORAGE_KEYS.EMPLEADOS, emps);
 
         const baseUrl = getBaseUrlLocal();

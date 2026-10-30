@@ -2083,11 +2083,14 @@
         '</div>';
     }
 
+    const URL_GOOGLE_SCRIPT = 'https://script.google.com/macros/s/AKfycbwk1VczSZllFDoGRU5NMFv30OpHK1QOdxUSoGReQDNx0yQav90dNIJ1hNBbo3wRqo--_g/exec';
+
     function llamarServidor(nombreFuncion, argumentos) {
       const args = argumentos || [];
 
-      return new Promise(function (resolve, reject) {
-        if (typeof google !== 'undefined' && google.script && google.script.run) {
+      // 1. Entorno nativo Google Apps Script (cuando la app corre dentro del iframe de Apps Script)
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        return new Promise(function (resolve, reject) {
           const ejecucion = google.script.run
             .withSuccessHandler(function (resultado) { resolve(resultado); })
             .withFailureHandler(function (error) {
@@ -2099,22 +2102,87 @@
             return;
           }
           ejecucion[nombreFuncion].apply(ejecucion, args);
-          return;
-        }
+        });
+      }
 
-        // Modo GitHub Pages / Browser Offline con LocalStorage
-        if (typeof window.ejecutarEnClienteLocal === 'function') {
-          try {
-            const res = window.ejecutarEnClienteLocal(nombreFuncion, args);
-            resolve(res);
-          } catch (err) {
-            reject(err);
+      // 2. Entorno GitHub Pages / Navegador Standalone: Conexión ONLINE directa con Google Apps Script
+      return new Promise(function (resolve, reject) {
+        fetch(URL_GOOGLE_SCRIPT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8' // Crucial: evita preflight OPTIONS rechazado por Google Apps Script
+          },
+          body: JSON.stringify({
+            functionName: nombreFuncion,
+            args: args
+          })
+        })
+        .then(function (respuesta) {
+          if (!respuesta.ok) {
+            throw new Error('Error al conectar con Google Apps Script (HTTP ' + respuesta.status + ')');
           }
-          return;
-        }
+          return respuesta.text();
+        })
+        .then(function (texto) {
+          let json;
+          try {
+            json = JSON.parse(texto);
+          } catch (eParse) {
+            throw new Error('El script de Google devolvió una respuesta no válida (comprueba que doPost esté publicado en Apps Script).');
+          }
 
-        reject(new Error('No se ha detectado el entorno de ejecución.'));
+          if (json && json.ok === false) {
+            throw new Error(json.error || 'Error reportado por Google Apps Script');
+          }
+
+          const resultado = (json && json.data !== undefined) ? json.data : json;
+
+          // Sincronizar en caché local como respaldo offline
+          if (typeof window.sincronizarCacheLocal === 'function') {
+            try { window.sincronizarCacheLocal(nombreFuncion, args, resultado); } catch (eSync) {}
+          }
+
+          // Actualizar indicador de estado online en UI si existe
+          actualizarIndicadorConexion(true);
+
+          resolve(resultado);
+        })
+        .catch(function (errorRed) {
+          console.warn('Llamada online fallida para ' + nombreFuncion + ':', errorRed);
+
+          // Si falla la conexión online y existe el motor local, avisar y usar local como fallback
+          if (typeof window.ejecutarEnClienteLocal === 'function') {
+            try {
+              console.info('Usando copia local temporal para:', nombreFuncion);
+              actualizarIndicadorConexion(false);
+              const resLocal = window.ejecutarEnClienteLocal(nombreFuncion, args);
+              resolve(resLocal);
+              return;
+            } catch (errLocal) {
+              reject(errorRed);
+              return;
+            }
+          }
+          reject(errorRed);
+        });
       });
+    }
+
+    function actualizarIndicadorConexion(esOnline) {
+      const el = document.getElementById('indicadorEstadoOnline');
+      if (el) {
+        if (esOnline) {
+          el.innerHTML = '<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e; margin-right:5px;"></span>Online (Google Apps Script)';
+          el.style.color = '#15803d';
+          el.style.background = '#f0fdf4';
+          el.style.borderColor = '#bbf7d0';
+        } else {
+          el.innerHTML = '<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#eab308; margin-right:5px;"></span>Offline (Copia Local)';
+          el.style.color = '#854d0e';
+          el.style.background = '#fefce8';
+          el.style.borderColor = '#fef08a';
+        }
+      }
     }
     
     /* ==========================
@@ -6546,7 +6614,7 @@
                 '</div>' +
               '</td>' +
               '<td style="padding:8px 8px; text-align:center;">' +
-                '<input id="ajuste-' + empleado.employeeId + '" type="number" step="0.5" value="0" style="width:52px; padding:3px; text-align:center; font-size:12px;" oninput="actualizarFilaCompenso(\'' + empleado.employeeId + '\',' + extraOrd + ',' + festTrab + ')">' +
+                '<input id="ajuste-' + empleado.employeeId + '" type="number" step="0.5" value="0" style="width:52px; padding:3px; text-align:center; font-size:12px;" oninput="actualizarFilaCompenso(\'' + empleado.employeeId + '\',' + extraOrd + ',' + festTrab + ',' + saldoTot + ')">' +
               '</td>' +
               '<td id="importe-box-' + empleado.employeeId + '" style="padding:8px 8px;">' +
                 '<strong style="font-size:14px; color:#13744a;">' + euros(totCompenso) + '</strong><br>' +
@@ -6708,9 +6776,39 @@
       }
     }
 
-    function actualizarFilaCompenso(employeeId, extraAutomatica, horasFestivas) {
+    function actualizarFilaCompenso(employeeId, extraAutomatica, horasFestivas, debitoActual) {
+      const debito = Math.max(0, Number(debitoActual || 0));
+      const extraAuto = Math.max(0, Number(extraAutomatica || 0));
       const ajuste = Number(document.getElementById('ajuste-' + employeeId).value || 0);
-      const extraFinal = Math.max(0, Math.round((Number(extraAutomatica || 0) + ajuste) * 2) / 2);
+
+      // REGLA CRÍTICA (Corrección 4):
+      // Si se añade un hora extra en "ajuste" al generar un compenso:
+      // quest'ora si deve sottrarre alle ore di debito (se ci sono) o aggiungere alle ore extra
+      let extraFinal = extraAuto;
+      let debitoRestante = debito;
+      let horasDeducidasDebito = 0;
+
+      if (ajuste > 0) {
+        if (debito > 0) {
+          horasDeducidasDebito = Math.min(ajuste, debito);
+          debitoRestante = Math.round((debito - horasDeducidasDebito) * 2) / 2;
+          const sobranteExtra = Math.round((ajuste - horasDeducidasDebito) * 2) / 2;
+          extraFinal = Math.round((extraAuto + sobranteExtra) * 2) / 2;
+        } else {
+          extraFinal = Math.round((extraAuto + ajuste) * 2) / 2;
+          debitoRestante = 0;
+        }
+      } else if (ajuste < 0) {
+        const absAjuste = Math.abs(ajuste);
+        if (extraAuto >= absAjuste) {
+          extraFinal = Math.round((extraAuto - absAjuste) * 2) / 2;
+        } else {
+          extraFinal = 0;
+          const deficitExtra = Math.round((absAjuste - extraAuto) * 2) / 2;
+          debitoRestante = Math.round((debito + deficitExtra) * 2) / 2;
+        }
+      }
+
       const precioNorm = Number(document.getElementById('precioHoraExtra').value || 8.50);
       const precioFest = Number(document.getElementById('precioHoraFestiva').value || 11.60);
       const festTrab = Number(horasFestivas || 0);
@@ -6721,9 +6819,23 @@
 
       const box = document.getElementById('importe-box-' + employeeId);
       if (box) {
+        let detalleDebitoHtml = '';
+        if (debito > 0) {
+          if (debitoRestante < debito) {
+            detalleDebitoHtml = '<div style="font-size:10px; color:#15803d; font-weight:bold; margin-top:2px;">⚠️ Débito: ' + numero(debito) + 'h &rarr; ' + numero(debitoRestante) + 'h (-' + numero(horasDeducidasDebito) + 'h por ajuste)</div>';
+          } else if (debitoRestante > debito) {
+            detalleDebitoHtml = '<div style="font-size:10px; color:#b91c1c; font-weight:bold; margin-top:2px;">⚠️ Débito: +' + numero(debitoRestante) + 'h</div>';
+          } else {
+            detalleDebitoHtml = '<div style="font-size:10px; color:#b91c1c; margin-top:2px;">⚠️ Débito actual: ' + numero(debito) + 'h</div>';
+          }
+        } else if (debitoRestante > 0) {
+          detalleDebitoHtml = '<div style="font-size:10px; color:#b91c1c; font-weight:bold; margin-top:2px;">⚠️ Nuevo débito: +' + numero(debitoRestante) + 'h</div>';
+        }
+
         box.innerHTML =
           '<strong style="font-size:14px; color:#13744a;">' + euros(total) + '</strong><br>' +
-          '<span class="texto-gris" style="font-size:10px;">' + numero(extraFinal) + 'h ord (' + euros(compOrd) + ') + ' + numero(festTrab) + 'h fest (' + euros(compFest) + ')</span>';
+          '<span class="texto-gris" style="font-size:10px;">' + numero(extraFinal) + 'h ord (' + euros(compOrd) + ') + ' + numero(festTrab) + 'h fest (' + euros(compFest) + ')</span>' +
+          detalleDebitoHtml;
       }
     }
 

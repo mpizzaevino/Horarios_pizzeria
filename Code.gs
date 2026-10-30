@@ -45,6 +45,38 @@ const NECESIDADES_BASE = {
 function doGet(e) {
   const parametros = e && e.parameter ? e.parameter : {};
 
+  // Modo API para clientes externos (GitHub Pages, app externa)
+  if (parametros.api || parametros.action) {
+    try {
+      const funcName = String(parametros.action || parametros.functionName || '').trim();
+      let args = [];
+      if (parametros.args) {
+        try { args = JSON.parse(parametros.args); } catch (errArgs) { args = []; }
+      }
+      const resultado = despacharLlamadaServidor_(funcName, args);
+      const jsonRes = JSON.stringify({ ok: true, data: resultado });
+
+      if (parametros.callback) {
+        return ContentService
+          .createTextOutput(parametros.callback + '(' + jsonRes + ')')
+          .setMimeType(ContentService.MimeType.JAVASCRIPT);
+      }
+      return ContentService
+        .createTextOutput(jsonRes)
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      const errRes = JSON.stringify({ ok: false, error: err.message || String(err) });
+      if (parametros.callback) {
+        return ContentService
+          .createTextOutput(parametros.callback + '(' + errRes + ')')
+          .setMimeType(ContentService.MimeType.JAVASCRIPT);
+      }
+      return ContentService
+        .createTextOutput(errRes)
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   const pagina = String(parametros.page || 'admin').trim();
   const token = String(parametros.token || '').trim();
 
@@ -61,9 +93,85 @@ function doGet(e) {
 
   return HtmlService
     .createHtmlOutputFromFile('Index')
-    .setTitle(CONFIG.NOMBRE_NEGOCIO + ' · Gestión de turnos')
+    .setTitle(CONFIG.NOMBRE_NEGOCIO + ' – Gestión de turnos')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/* =========================
+   API WEB ONLINE (doPost & despachador)
+   Permite guardar y cargar datos ONLINE desde GitHub Pages o cualquier navegador
+   en la base de datos de Google Apps Script (PropertiesService).
+   ========================= */
+
+function doPost(e) {
+  try {
+    const raw = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
+    let payload = {};
+    try { payload = JSON.parse(raw); } catch (eJson) { payload = {}; }
+
+    const funcName = String(payload.functionName || payload.action || '').trim();
+    const args = Array.isArray(payload.args) ? payload.args : [];
+
+    const resultado = despacharLlamadaServidor_(funcName, args);
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true, data: resultado }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: error.message || String(error) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function despacharLlamadaServidor_(funcName, args) {
+  const mapa = {
+    obtenerDatosIniciales: obtenerDatosIniciales,
+    existeContrasenaAdmin: existeContrasenaAdmin,
+    configurarContrasenaAdmin: configurarContrasenaAdmin,
+    iniciarSesionAdmin: iniciarSesionAdmin,
+    validarSesionAdmin: validarSesionAdmin,
+    cerrarSesionAdmin: cerrarSesionAdmin,
+    exportarSistemaCompleto: exportarSistemaCompleto,
+    listarPlantillas: listarPlantillas,
+    guardarPlantilla: guardarPlantilla,
+    eliminarPlantilla: eliminarPlantilla,
+    listarEmpleados: listarEmpleados,
+    guardarEmpleado: guardarEmpleado,
+    cambiarEstadoEmpleado: cambiarEstadoEmpleado,
+    guardarSaldoEmpleado: guardarSaldoEmpleado,
+    consolidarSaldosCalendario: consolidarSaldosCalendario,
+    eliminarEmpleado: eliminarEmpleado,
+    listarCalendarios: listarCalendarios,
+    obtenerCalendario: obtenerCalendario,
+    generarCalendario: generarCalendario,
+    guardarCalendarioEditado: guardarCalendarioEditado,
+    eliminarCalendario: eliminarCalendario,
+    calcularSemanaHosteleria: calcularSemanaHosteleria,
+    calcularResumenCalendario: calcularResumenCalendario,
+    crearEnlacesCalendario: crearEnlacesCalendario,
+    cambiarEstadoEnlace: cambiarEstadoEnlace,
+    eliminarEnlace: eliminarEnlace,
+    eliminarEnlaces: eliminarEnlaces,
+    guardarAjustesTarifas: guardarAjustesTarifas,
+    obtenerResumenCompenso: obtenerResumenCompenso,
+    generarReciboCompenso: generarReciboCompenso,
+    eliminarCompensacion: eliminarCompensacion,
+    listarHistorialSaldos: listarHistorialSaldos,
+    guardarAjusteManualSaldo: guardarAjusteManualSaldo,
+    eliminarRegistroSaldo: eliminarRegistroSaldo,
+    restablecerTodosSaldos: restablecerTodosSaldos,
+    obtenerVistaPublica: obtenerVistaPublica,
+    pruebaWeb: pruebaWeb,
+    pruebaDatos: pruebaDatos
+  };
+
+  if (!mapa[funcName] || typeof mapa[funcName] !== 'function') {
+    throw new Error('Función no autorizada o no encontrada en el servidor: ' + funcName);
+  }
+
+  return mapa[funcName].apply(null, args || []);
 }
 
 /* =========================
@@ -2461,8 +2569,40 @@ function generarReciboCompenso(tokenSesion, datos) {
   const precioExtraOrd = Math.max(0, Number(datos.pricePerHour !== undefined ? datos.pricePerHour : (ajustes.precioHoraExtra || 8.50)));
   const precioFestivo = Math.max(0, Number(datos.pricePerFestiveHour !== undefined ? datos.pricePerFestiveHour : (ajustes.precioHoraFestiva || 11.60)));
 
+  const debitoActual = Math.max(0, Number(resumen.saldoTotalAcumulado || 0));
+  const extraActual = Math.max(0, Number(resumen.extraHours || 0));
   const ajusteManual = Number(datos.manualAdjustment || 0);
-  const horasFinalesOrdinarie = Math.max(0, redondear(resumen.extraHours + ajusteManual));
+
+  // REGLA CRÍTICA (Corrección 4):
+  // Si se añade un hora extra en "ajuste" al generar un compenso:
+  // - Se debe restar a las horas de débito (si las hay).
+  // - Si el ajuste supera el débito, el resto se añade a las horas extra ordinarias.
+  // - Si no hay débito, se añade íntegramente a las horas extra ordinarias.
+  let horasDeducidasDebito = 0;
+  let saldoRestanteDebito = debitoActual;
+  let horasFinalesOrdinarie = extraActual;
+
+  if (ajusteManual > 0) {
+    if (debitoActual > 0) {
+      horasDeducidasDebito = Math.min(ajusteManual, debitoActual);
+      saldoRestanteDebito = redondear(debitoActual - horasDeducidasDebito);
+      const sobranteExtra = redondear(ajusteManual - horasDeducidasDebito);
+      horasFinalesOrdinarie = redondear(extraActual + sobranteExtra);
+    } else {
+      horasFinalesOrdinarie = redondear(extraActual + ajusteManual);
+      saldoRestanteDebito = 0;
+    }
+  } else if (ajusteManual < 0) {
+    const absAjuste = Math.abs(ajusteManual);
+    if (extraActual >= absAjuste) {
+      horasFinalesOrdinarie = redondear(extraActual - absAjuste);
+    } else {
+      horasFinalesOrdinarie = 0;
+      const deficitExtra = redondear(absAjuste - extraActual);
+      saldoRestanteDebito = redondear(debitoActual + deficitExtra);
+    }
+  }
+
   const horasFestive = redondear(resumen.workedFestiveHours || 0);
 
   const compensoOrd = redondear2Decimales_(horasFinalesOrdinarie * precioExtraOrd);
@@ -2489,6 +2629,8 @@ function generarReciboCompenso(tokenSesion, datos) {
     saldoHorasAnterior: resumen.saldoHorasAnterior || 0,
     saldoPeriodo: resumen.saldoPeriodo,
     saldoTotalAcumulado: resumen.saldoTotalAcumulado,
+    debitoPrevio: debitoActual,
+    debitoDeducido: horasDeducidasDebito,
     automaticExtraHours: resumen.extraHours,
     manualAdjustment: ajusteManual,
     finalExtraHours: horasFinalesOrdinarie,
@@ -2499,21 +2641,19 @@ function generarReciboCompenso(tokenSesion, datos) {
     totalAmount: importeTotal,
     desgloseSemanas: resumen.desgloseSemanas || [],
     justification: String(datos.justification || '').trim(),
+    saldoRestante: saldoRestanteDebito,
     createdAt: new Date().toISOString()
   };
-
-  // F14: Trasladar automáticamente el saldo restante no compensado al empleado
-  const saldoRestante = redondear((resumen.saldoTotalAcumulado || 0) + ajusteManual - horasFinalesOrdinarie);
-  compensacion.saldoRestante = saldoRestante;
 
   const compensos = obtenerJson_(CONFIG.COMPENSOS, []);
   compensos.push(compensacion);
   guardarJson_(CONFIG.COMPENSOS, compensos);
 
+  // F14: Trasladar automáticamente el débito restante no compensado al empleado
   const todosEmpleados = obtenerEmpleados_();
   const empTarget = todosEmpleados.find(function(e) { return e.id === empleado.id; });
   if (empTarget) {
-    empTarget.saldoHorasAnterior = saldoRestante;
+    empTarget.saldoHorasAnterior = saldoRestanteDebito;
     guardarEmpleados_(todosEmpleados);
   }
 
@@ -2533,9 +2673,10 @@ function generarReciboCompenso(tokenSesion, datos) {
     saldoAnterior: resumen.saldoHorasAnterior || 0,
     saldoPeriodo: resumen.saldoPeriodo || 0,
     ajusteManual: ajusteManual,
+    debitoDeducido: horasDeducidasDebito,
     finalExtraHours: horasFinalesOrdinarie,
-    saldoResultante: saldoRestante,
-    tipo: saldoRestante < 0 ? 'DEFICIT' : (saldoRestante > 0 ? 'CREDITO' : 'NEUTRO'),
+    saldoResultante: saldoRestanteDebito,
+    tipo: saldoRestanteDebito > 0 ? 'DEFICIT' : (horasFinalesOrdinarie > 0 ? 'CREDITO' : 'NEUTRO'),
     origen: 'Generación de recibo de compenso Hosteleria',
     createdAt: new Date().toISOString()
   });

@@ -1,0 +1,4 @@
+1. "Plantillas" si deve salvare online e non nella memoria locale del browser 
+2. In Gestione de empleados, tutti i dati di ogni impiegato si devono salvare online e non nella memoria del singolo browser 
+3. In Creación y Calendario, tutti i calendario creati si devono salvare online e non nella memoria del singolo browser 
+4. Se si aggiunge un ora extra in "ajuste" nel generare un compenso quest'ora si deve sottrarre alle ore di debito (se ci sono) o aggiungere alle ore extra

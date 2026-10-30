@@ -20,7 +20,135 @@
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--crema); color: var(--texto); font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; min-height: 100vh; }
-    @media print { body { display: none !important; } }
+    /* ========================================================
+       PROTECCIÓN TOTAL CONTRA IMPRESIÓN Y CAPTURA DE PANTALLA
+       ======================================================== */
+    @media print {
+      html, body {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        height: 0 !important;
+        width: 0 !important;
+        overflow: hidden !important;
+      }
+      #print-block-screen {
+        display: flex !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: #ffffff !important;
+        color: #b91c1c !important;
+        font-size: 22px !important;
+        font-weight: bold !important;
+        justify-content: center !important;
+        align-items: center !important;
+        text-align: center !important;
+        z-index: 99999999 !important;
+        font-family: 'Segoe UI', Arial, sans-serif !important;
+      }
+    }
+    @page {
+      size: auto;
+      margin: 0mm;
+    }
+
+    /* Anti-selección y bloqueo de cursor */
+    html, body {
+      -webkit-user-select: none !important;
+      -moz-user-select: none !important;
+      -ms-user-select: none !important;
+      user-select: none !important;
+      -webkit-touch-callout: none !important;
+    }
+
+    /* Filigrana de fondo con aviso de confidencialidad */
+    .filigrana-seguridad {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.035;
+      background-image: repeating-linear-gradient(
+        -45deg,
+        #000000 0,
+        #000000 2px,
+        transparent 2px,
+        transparent 150px
+      );
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-around;
+      align-content: space-around;
+      overflow: hidden;
+      font-size: 13px;
+      font-weight: 800;
+      color: #000;
+      letter-spacing: 2px;
+      user-select: none;
+    }
+
+    /* Escudo de privacidad al perder el foco (Snipping Tool / captura de pantalla) */
+    #pantalla-privacidad {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(18, 12, 14, 0.96);
+      backdrop-filter: blur(40px);
+      -webkit-backdrop-filter: blur(40px);
+      z-index: 999999;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: #f8f4ed;
+      text-align: center;
+      padding: 30px;
+    }
+    #pantalla-privacidad .icono-priv {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+    #pantalla-privacidad h2 {
+      font-size: 22px;
+      color: #fca5a5;
+      margin-bottom: 8px;
+    }
+    #pantalla-privacidad p {
+      font-size: 14px;
+      color: #e2e8f0;
+      max-width: 480px;
+      line-height: 1.5;
+    }
+
+    /* Toast de advertencia de seguridad */
+    #toast-seguridad {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #7f1d1d;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      z-index: 9999999;
+      display: none;
+      animation: aparecerToast 0.25s ease-out;
+    }
+    @keyframes aparecerToast {
+      from { opacity: 0; transform: translate(-50%, 10px); }
+      to { opacity: 1; transform: translate(-50%, 0); }
+    }
 
     .cabecera { background: linear-gradient(135deg, var(--vino-oscuro) 0%, var(--vino) 60%, #8b1a2e 100%); color: white; padding: 28px 20px 22px; text-align: center; box-shadow: 0 3px 15px rgba(0,0,0,.25); }
     .logo-marca { font-size: 11px; font-weight: 900; letter-spacing: 4px; text-transform: uppercase; color: var(--oro); margin-bottom: 6px; }
@@ -67,8 +195,8 @@
     .total-chip { font-size: 12px; font-weight: 700; }
     .total-chip.extra { color: var(--naranja); }
 
-    .resumen-global { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 18px; }
-    .resumen-empleado { padding: 14px; border: 1px solid var(--borde); border-radius: 10px; background: white; }
+    .resumen-global { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px; margin-top: 18px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+    .resumen-empleado { flex: 0 0 210px; min-width: 210px; padding: 14px; border: 1px solid var(--borde); border-radius: 10px; background: white; }
     .resumen-empleado h4 { font-size: 13px; margin-bottom: 6px; }
     .resumen-empleado .rol { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--naranja); margin-bottom: 8px; }
     .resumen-empleado .linea { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px; }
@@ -110,8 +238,29 @@
       .busta-num { text-align: left; }
     }
   </style>
+  <script src="local_engine.js"></script>
 </head>
-<body>
+<body ondragstart="return false;">
+  <div id="print-block-screen" style="display:none;">
+    ⚠️ DOCUMENTO CONFIDENCIAL PROTEGIDO<br>
+    <span style="font-size:14px; font-weight:normal; color:#555; margin-top:8px;">La impresión de este enlace no está autorizada.</span>
+  </div>
+
+  <div id="pantalla-privacidad">
+    <div class="icono-priv">🛡️</div>
+    <h2>DOCUMENTO CONFIDENCIAL PROTEGIDO</h2>
+    <p>Por motivos de seguridad y confidencialidad, el contenido se oculta automáticamente al activar herramientas de captura de pantalla o cambiar de aplicación.</p>
+    <p style="margin-top:14px; font-size:12px; color:#94a3b8;">Haz clic en esta ventana para reactivar la visualización.</p>
+  </div>
+
+  <div id="toast-seguridad"></div>
+
+  <div class="filigrana-seguridad" aria-hidden="true">
+    <span>CONFIDENCIAL • SOLO CONSULTA</span>
+    <span>CONFIDENCIAL • SOLO CONSULTA</span>
+    <span>CONFIDENCIAL • SOLO CONSULTA</span>
+    <span>CONFIDENCIAL • SOLO CONSULTA</span>
+  </div>
   <header class="cabecera">
     <div class="logo-icono">📋</div>
     <div class="logo-marca">Portal de Consulta</div>
@@ -257,6 +406,34 @@
           var inicio = infoTurno.inicio || franja.defaultInicio;
           var fin = infoTurno.fin || franja.defaultFin;
 
+          var excepcionFila = null;
+          if (Array.isArray(cal.excepciones)) {
+            for (var eIdx = 0; eIdx < cal.excepciones.length; eIdx++) {
+              var ex = cal.excepciones[eIdx];
+              if (ex.turno === franja.key && ex.tipo === 'fecha' && ex.valor === fecha) {
+                excepcionFila = ex;
+                break;
+              }
+            }
+            if (!excepcionFila) {
+              for (var eIdx = 0; eIdx < cal.excepciones.length; eIdx++) {
+                var ex = cal.excepciones[eIdx];
+                if (ex.turno === franja.key && ex.tipo === 'diasemana' && ex.valor === nombreDia) {
+                  excepcionFila = ex;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (excepcionFila && excepcionFila.horarios) {
+            var hRolRef = excepcionFila.horarios.COCINA || excepcionFila.horarios.PIZZERIA || excepcionFila.horarios.SALA;
+            if (hRolRef && hRolRef.inicio && hRolRef.fin) {
+              inicio = hRolRef.inicio;
+              fin = hRolRef.fin;
+            }
+          }
+
           var aParts = String(inicio).split(':');
           var bParts = String(fin).split(':');
           var mA = Number(aParts[0]) * 60 + Number(aParts[1] || 0);
@@ -299,14 +476,17 @@
               }
               var emp = emps.find(function(e) { return e.id === a.employeeId; });
               if (emp) {
-                var depts = (Array.isArray(emp.depts) && emp.depts.length) ? emp.depts : [emp.dept];
-                return depts.indexOf(rol) >= 0;
+                // FIX-BUG1: Para asignaciones legacy sin a.role, asociar solo a su departamento principal
+                return (emp.dept || '').toUpperCase() === rol;
               }
               return false;
             });
 
             var necesidadTurno = (cal.necesidades && cal.necesidades[franja.key]) || {};
             var cantidadNecesaria = Number(necesidadTurno[rol] || 0);
+            if (excepcionFila && excepcionFila.necesidades && excepcionFila.necesidades[rol] !== undefined && excepcionFila.necesidades[rol] !== null) {
+              cantidadNecesaria = Number(excepcionFila.necesidades[rol]);
+            }
 
             if (cantidadNecesaria > 0 && empsRol.length < cantidadNecesaria) {
               if (empsRol.length === 0) {
@@ -499,10 +679,11 @@
         resumen.forEach(function(r) {
           var saldoPer = round2(r.saldoPeriodo || 0);
           var saldoTot = round2(r.saldoTotalAcumulado || 0);
+          var esInact = r.esInactivo === 1 || r.esInactivo === true || r.active === false;
           html += '<div class="resumen-empleado">';
-          html += '<h4>'+escaparHTML(r.employeeName)+'</h4>';
+          html += '<h4>'+escaparHTML(r.employeeName)+(esInact ? ' <span style="font-size:10px; background:#fee2e2; color:#991b1b; padding:1px 5px; border-radius:4px;">Inactivo</span>' : '')+'</h4>';
           html += '<div class="rol">'+escaparHTML(r.role)+'</div>';
-          html += '<div class="linea"><span>Contrato:</span><span>'+numero(r.contractHours)+' h</span></div>';
+          html += '<div class="linea"><span>Contrato:</span><span>'+(esInact ? '0 h (Inactivo)' : (numero(r.contractHours)+' h'))+'</span></div>';
           html += '<div class="linea"><span>Trabajadas:</span><span>'+numero(r.workedHours)+' h</span></div>';
           if (r.saldoHorasAnterior) {
             html += '<div class="linea"><span>Saldo anterior:</span><span style="color:'+(r.saldoHorasAnterior>=0?'var(--verde)':'#d93025')+';">'+(r.saldoHorasAnterior>=0?'+':'')+numero(r.saldoHorasAnterior)+' h</span></div>';
@@ -543,12 +724,18 @@
       html += '<tr><td>Semana laboral base del sector</td><td class="num">' + diasBase + ' días/semana</td></tr>';
       html += '<tr><td>Jornada ordinaria base diaria (teórica)</td><td class="num">' + numero(oreBaseDiaria) + ' h/día</td></tr>';
 
+      // NUOVA REGOLA: nómina fissa, festivi retribuiti separatamente
       if (c.festivosCount && c.festivosCount > 0) {
-        html += '<tr style="background:#f0f9ff;"><td>Días festivos computados en el período</td><td class="num" style="color:#0369a1; font-weight:bold;">🎉 ' + c.festivosCount + ' día' + (c.festivosCount > 1 ? 's' : '') + '</td></tr>';
-        html += '<tr style="background:#f0f9ff;"><td>Deducción horas por festivos (H. Nomina)</td><td class="num" style="color:var(--verde); font-weight:bold;">-' + numero(c.festivosDeduction) + ' h</td></tr>';
-        html += '<tr style="font-weight:600;"><td>Horas debidas del período (H_NOMINA)</td><td class="num" style="color:#0c4a6e;">' + numero(c.contractHours) + ' h</td></tr>';
-      } else {
-        html += '<tr style="font-weight:600;"><td>Horas debidas del período (H_NOMINA)</td><td class="num">' + numero(c.contractHours) + ' h</td></tr>';
+        html += '<tr style="background:#f0f9ff;"><td>Días festivos trabajados en el período</td><td class="num" style="color:#0369a1; font-weight:bold;">🎉 ' + c.festivosCount + ' día' + (c.festivosCount > 1 ? 's' : '') + ' → retribuidos a tarifa festiva</td></tr>';
+      }
+      html += '<tr style="font-weight:600;"><td>Horas de Nómina del período <span style="background:#dcfce7; color:#166534; font-size:10px; padding:1px 5px; border-radius:3px; margin-left:4px;">FIJA</span></td><td class="num" style="color:#0c4a6e;">' + numero(c.contractHours) + ' h</td></tr>';
+      {
+      var saldoAntRec = Number(c.saldoHorasAnterior || 0);
+      if (saldoAntRec > 0) {
+        html += '<tr style="background:#fff7ed; color:#c2410c;"><td>+ Horas pendientes a compensar de período anterior</td><td class="num" style="font-weight:bold;">+' + numero(saldoAntRec) + ' h</td></tr>';
+        html += '<tr style="font-weight:700; background:#fef3c7;"><td>Total horas requeridas antes de devengar horas extra</td><td class="num" style="color:#92400e; font-weight:bold;">' + numero(c.contractHoursEfectivas || (c.contractHours + saldoAntRec)) + ' h</td></tr>';
+      }
+
       }
 
       html += '<tr><td>Horas efectivamente trabajadas</td><td class="num"><strong>' + numero(c.workedHours) + ' h</strong></td></tr>';
@@ -583,12 +770,20 @@
         '<td class="num" style="color:var(--naranja); font-weight:bold;">' + euros(compOrd) + '</td>' +
         '</tr>';
 
+      var debitoDeducido = Number(c.debitoDeducido || 0);
+      if (debitoDeducido > 0) {
+        html += '<tr style="background:#f0fdf4;">' +
+          '<td style="color:#15803d; font-weight:bold;">Ajuste manual aplicado a deducir débito</td>' +
+          '<td class="num" style="color:#15803d; font-weight:bold;">-' + numero(debitoDeducido) + ' h débito</td>' +
+          '</tr>';
+      }
+
       var saldoRestante = Number(c.saldoRestante !== undefined ? c.saldoRestante : ((c.saldoTotalAcumulado || 0) + adj - hExtraOrd));
       if (saldoRestante !== 0) {
-        var esDebito = saldoRestante < 0;
+        var esDebito = saldoRestante > 0;
         html += '<tr style="background:' + (esDebito ? '#fff2f0' : '#f0fff4') + '; font-weight:bold;">' +
-          '<td style="color:' + (esDebito ? '#d93025' : '#2e7d32') + ';">Saldo a trasladar al siguiente período</td>' +
-          '<td class="num" style="color:' + (esDebito ? '#d93025' : '#2e7d32') + ';">' + (saldoRestante >= 0 ? '+' : '') + numero(saldoRestante) + ' h</td>' +
+          '<td style="color:' + (esDebito ? '#d93025' : '#2e7d32') + ';">' + (esDebito ? 'Débito pendiente trasladado al próximo período' : 'Saldo a favor trasladado al próximo período') + '</td>' +
+          '<td class="num" style="color:' + (esDebito ? '#d93025' : '#2e7d32') + ';">' + (saldoRestante > 0 ? '+' : '') + numero(saldoRestante) + ' h</td>' +
           '</tr>';
       }
 
@@ -648,52 +843,802 @@
     function obtenerParametroUrl(nombre) {
       try {
         var params = new URLSearchParams(window.location.search);
-        return (params.get(nombre) || '').trim();
+        var val = params.get(nombre);
+        if (val) return val.trim();
+        if (window.location.hash) {
+          var hashStr = window.location.hash.substring(1);
+          var hashParams = new URLSearchParams(hashStr);
+          val = hashParams.get(nombre);
+          if (val) return val.trim();
+        }
+        return '';
       } catch (e) {
         return '';
       }
     }
 
-    window.addEventListener('DOMContentLoaded', function() {
-      var pagina = <?!= JSON.stringify(pagina) ?> || obtenerParametroUrl('page');
-      var token  = <?!= JSON.stringify(token) ?> || obtenerParametroUrl('token');
+    // Mini LZ-String para descompresión de enlaces ultracompactos (URI safe)
+    var LZString = (function () {
+      var f = String.fromCharCode;
+      var keyStrUriSafe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$";
+      var baseReverseDic = {};
+      function getBaseValue(alphabet, character) {
+        if (!baseReverseDic[alphabet]) {
+          baseReverseDic[alphabet] = {};
+          for (var i = 0; i < alphabet.length; i++) {
+            baseReverseDic[alphabet][alphabet.charAt(i)] = i;
+          }
+        }
+        return baseReverseDic[alphabet][character];
+      }
+      return {
+        compressToEncodedURIComponent: function (input) {
+          if (input == null) return "";
+          return this._compress(input, 6, function (a) { return keyStrUriSafe.charAt(a); });
+        },
+        decompressFromEncodedURIComponent: function (input) {
+          if (input == null) return "";
+          if (input === "") return null;
+          input = input.replace(/ /g, "+");
+          return this._decompress(input.length, 32, function (index) {
+            return getBaseValue(keyStrUriSafe, input.charAt(index));
+          });
+        },
+        _compress: function (uncompressed, bitsPerChar, getCharFromInt) {
+          if (uncompressed == null) return "";
+          var i, value,
+              context_dictionary = {},
+              context_dictionaryToCreate = {},
+              context_c = "",
+              context_wc = "",
+              context_w = "",
+              context_enlargeIn = 2,
+              context_dictSize = 3,
+              context_numBits = 2,
+              context_data = [],
+              context_data_val = 0,
+              context_data_position = 0,
+              ii;
 
-      pagina = String(pagina || '').replace(/&quot;/g, '').replace(/^"|"$/g, '').trim();
-      token  = String(token || '').replace(/&quot;/g, '').replace(/^"|"$/g, '').trim();
+          for (ii = 0; ii < uncompressed.length; ii += 1) {
+            context_c = uncompressed.charAt(ii);
+            if (!Object.prototype.hasOwnProperty.call(context_dictionary, context_c)) {
+              context_dictionary[context_c] = context_dictSize++;
+              context_dictionaryToCreate[context_c] = true;
+            }
+
+            context_wc = context_w + context_c;
+            if (Object.prototype.hasOwnProperty.call(context_dictionary, context_wc)) {
+              context_w = context_wc;
+            } else {
+              if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate, context_w)) {
+                if (context_w.charCodeAt(0) < 256) {
+                  for (i = 0; i < context_numBits; i++) {
+                    context_data_val = (context_data_val << 1);
+                    if (context_data_position === bitsPerChar - 1) {
+                      context_data_position = 0;
+                      context_data.push(getCharFromInt(context_data_val));
+                      context_data_val = 0;
+                    } else {
+                      context_data_position++;
+                    }
+                  }
+                  value = context_w.charCodeAt(0);
+                  for (i = 0; i < 8; i++) {
+                    context_data_val = (context_data_val << 1) | (value & 1);
+                    if (context_data_position === bitsPerChar - 1) {
+                      context_data_position = 0;
+                      context_data.push(getCharFromInt(context_data_val));
+                      context_data_val = 0;
+                    } else {
+                      context_data_position++;
+                    }
+                    value = value >> 1;
+                  }
+                } else {
+                  value = 1;
+                  for (i = 0; i < context_numBits; i++) {
+                    context_data_val = (context_data_val << 1) | value;
+                    if (context_data_position === bitsPerChar - 1) {
+                      context_data_position = 0;
+                      context_data.push(getCharFromInt(context_data_val));
+                      context_data_val = 0;
+                    } else {
+                      context_data_position++;
+                    }
+                    value = 0;
+                  }
+                  value = context_w.charCodeAt(0);
+                  for (i = 0; i < 16; i++) {
+                    context_data_val = (context_data_val << 1) | (value & 1);
+                    if (context_data_position === bitsPerChar - 1) {
+                      context_data_position = 0;
+                      context_data.push(getCharFromInt(context_data_val));
+                      context_data_val = 0;
+                    } else {
+                      context_data_position++;
+                    }
+                    value = value >> 1;
+                  }
+                }
+                context_enlargeIn--;
+                if (context_enlargeIn === 0) {
+                  context_enlargeIn = Math.pow(2, context_numBits);
+                  context_numBits++;
+                }
+                delete context_dictionaryToCreate[context_w];
+              } else {
+                value = context_dictionary[context_w];
+                for (i = 0; i < context_numBits; i++) {
+                  context_data_val = (context_data_val << 1) | (value & 1);
+                  if (context_data_position === bitsPerChar - 1) {
+                    context_data_position = 0;
+                    context_data.push(getCharFromInt(context_data_val));
+                    context_data_val = 0;
+                  } else {
+                    context_data_position++;
+                  }
+                  value = value >> 1;
+                }
+              }
+              context_enlargeIn--;
+              if (context_enlargeIn === 0) {
+                context_enlargeIn = Math.pow(2, context_numBits);
+                context_numBits++;
+              }
+              context_dictionary[context_wc] = context_dictSize++;
+              context_w = String(context_c);
+            }
+          }
+
+          if (context_w !== "") {
+            if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate, context_w)) {
+              if (context_w.charCodeAt(0) < 256) {
+                for (i = 0; i < context_numBits; i++) {
+                  context_data_val = (context_data_val << 1);
+                  if (context_data_position === bitsPerChar - 1) {
+                    context_data_position = 0;
+                    context_data.push(getCharFromInt(context_data_val));
+                    context_data_val = 0;
+                  } else {
+                    context_data_position++;
+                  }
+                }
+                value = context_w.charCodeAt(0);
+                for (i = 0; i < 8; i++) {
+                  context_data_val = (context_data_val << 1) | (value & 1);
+                  if (context_data_position === bitsPerChar - 1) {
+                    context_data_position = 0;
+                    context_data.push(getCharFromInt(context_data_val));
+                    context_data_val = 0;
+                  } else {
+                    context_data_position++;
+                  }
+                  value = value >> 1;
+                }
+              } else {
+                value = 1;
+                for (i = 0; i < context_numBits; i++) {
+                  context_data_val = (context_data_val << 1) | value;
+                  if (context_data_position === bitsPerChar - 1) {
+                    context_data_position = 0;
+                    context_data.push(getCharFromInt(context_data_val));
+                    context_data_val = 0;
+                  } else {
+                    context_data_position++;
+                  }
+                  value = 0;
+                }
+                value = context_w.charCodeAt(0);
+                for (i = 0; i < 16; i++) {
+                  context_data_val = (context_data_val << 1) | (value & 1);
+                  if (context_data_position === bitsPerChar - 1) {
+                    context_data_position = 0;
+                    context_data.push(getCharFromInt(context_data_val));
+                    context_data_val = 0;
+                  } else {
+                    context_data_position++;
+                  }
+                  value = value >> 1;
+                }
+              }
+              context_enlargeIn--;
+              if (context_enlargeIn === 0) {
+                context_enlargeIn = Math.pow(2, context_numBits);
+                context_numBits++;
+              }
+              delete context_dictionaryToCreate[context_w];
+            } else {
+              value = context_dictionary[context_w];
+              for (i = 0; i < context_numBits; i++) {
+                context_data_val = (context_data_val << 1) | (value & 1);
+                if (context_data_position === bitsPerChar - 1) {
+                  context_data_position = 0;
+                  context_data.push(getCharFromInt(context_data_val));
+                  context_data_val = 0;
+                } else {
+                  context_data_position++;
+                }
+                value = value >> 1;
+              }
+            }
+            context_enlargeIn--;
+            if (context_enlargeIn === 0) {
+              context_enlargeIn = Math.pow(2, context_numBits);
+              context_numBits++;
+            }
+          }
+
+          value = 2;
+          for (i = 0; i < context_numBits; i++) {
+            context_data_val = (context_data_val << 1) | (value & 1);
+            if (context_data_position === bitsPerChar - 1) {
+              context_data.push(getCharFromInt(context_data_val));
+              context_data_val = 0;
+            } else {
+              context_data_position++;
+            }
+            value = value >> 1;
+          }
+
+          while (true) {
+            context_data_val = (context_data_val << 1);
+            if (context_data_position === bitsPerChar - 1) {
+              context_data.push(getCharFromInt(context_data_val));
+              break;
+            } else {
+              context_data_position++;
+            }
+          }
+          return context_data.join('');
+        },
+        _decompress: function (length, resetValue, getNextValue) {
+          var dictionary = [],
+              next,
+              enlargeIn = 4,
+              dictSize = 4,
+              numBits = 3,
+              entry = "",
+              result = [],
+              i,
+              w,
+              bits, resb, maxpower, power,
+              c,
+              data = { val: getNextValue(0), position: resetValue, index: 1 };
+
+          for (i = 0; i < 3; i += 1) {
+            dictionary[i] = i;
+          }
+
+          bits = 0;
+          maxpower = Math.pow(2, 2);
+          power = 1;
+          while (power !== maxpower) {
+            resb = data.val & data.position;
+            data.position >>= 1;
+            if (data.position === 0) {
+              data.position = resetValue;
+              data.val = getNextValue(data.index++);
+            }
+            bits |= (resb > 0 ? 1 : 0) * power;
+            power <<= 1;
+          }
+
+          switch (next = bits) {
+            case 0:
+              bits = 0;
+              maxpower = Math.pow(2, 8);
+              power = 1;
+              while (power !== maxpower) {
+                resb = data.val & data.position;
+                data.position >>= 1;
+                if (data.position === 0) {
+                  data.position = resetValue;
+                  data.val = getNextValue(data.index++);
+                }
+                bits |= (resb > 0 ? 1 : 0) * power;
+                power <<= 1;
+              }
+              c = f(bits);
+              break;
+            case 1:
+              bits = 0;
+              maxpower = Math.pow(2, 16);
+              power = 1;
+              while (power !== maxpower) {
+                resb = data.val & data.position;
+                data.position >>= 1;
+                if (data.position === 0) {
+                  data.position = resetValue;
+                  data.val = getNextValue(data.index++);
+                }
+                bits |= (resb > 0 ? 1 : 0) * power;
+                power <<= 1;
+              }
+              c = f(bits);
+              break;
+            case 2:
+              return "";
+          }
+          dictionary[3] = c;
+          w = c;
+          result.push(c);
+          while (true) {
+            if (data.index > length) {
+              return "";
+            }
+
+            bits = 0;
+            maxpower = Math.pow(2, numBits);
+            power = 1;
+            while (power !== maxpower) {
+              resb = data.val & data.position;
+              data.position >>= 1;
+              if (data.position === 0) {
+                data.position = resetValue;
+                data.val = getNextValue(data.index++);
+              }
+              bits |= (resb > 0 ? 1 : 0) * power;
+              power <<= 1;
+            }
+
+            switch (c = bits) {
+              case 0:
+                bits = 0;
+                maxpower = Math.pow(2, 8);
+                power = 1;
+                while (power !== maxpower) {
+                  resb = data.val & data.position;
+                  data.position >>= 1;
+                  if (data.position === 0) {
+                    data.position = resetValue;
+                    data.val = getNextValue(data.index++);
+                  }
+                  bits |= (resb > 0 ? 1 : 0) * power;
+                  power <<= 1;
+                }
+
+                dictionary[dictSize++] = f(bits);
+                c = dictSize - 1;
+                enlargeIn--;
+                break;
+              case 1:
+                bits = 0;
+                maxpower = Math.pow(2, 16);
+                power = 1;
+                while (power !== maxpower) {
+                  resb = data.val & data.position;
+                  data.position >>= 1;
+                  if (data.position === 0) {
+                    data.position = resetValue;
+                    data.val = getNextValue(data.index++);
+                  }
+                  bits |= (resb > 0 ? 1 : 0) * power;
+                  power <<= 1;
+                }
+                dictionary[dictSize++] = f(bits);
+                c = dictSize - 1;
+                enlargeIn--;
+                break;
+              case 2:
+                return result.join('');
+            }
+
+            if (enlargeIn === 0) {
+              enlargeIn = Math.pow(2, numBits);
+              numBits++;
+            }
+
+            if (dictionary[c]) {
+              entry = dictionary[c];
+            } else {
+              if (c === dictSize) {
+                entry = w + w.charAt(0);
+              } else {
+                return null;
+              }
+            }
+            result.push(entry);
+
+            dictionary[dictSize++] = w + entry.charAt(0);
+            enlargeIn--;
+
+            w = entry;
+
+            if (enlargeIn === 0) {
+              enlargeIn = Math.pow(2, numBits);
+              numBits++;
+            }
+          }
+        }
+      };
+    })();
+
+    function obtenerZDirecto() {
+      try {
+        var hash = window.location.hash || '';
+        if (hash.startsWith('#')) hash = hash.substring(1);
+        if (hash) {
+          if (hash.startsWith('z=')) {
+            return decodeURIComponent(hash.substring(2));
+          }
+          var mHash = hash.match(/(?:^|&)z=([^&]+)/);
+          if (mHash && mHash[1]) {
+            return decodeURIComponent(mHash[1]);
+          }
+        }
+        var search = window.location.search || '';
+        if (search.startsWith('?')) search = search.substring(1);
+        if (search) {
+          var mSearch = search.match(/(?:^|&)z=([^&]+)/);
+          if (mSearch && mSearch[1]) {
+            return decodeURIComponent(mSearch[1]);
+          }
+        }
+      } catch (e) {
+        console.warn('Error extrayendo parametro z:', e);
+      }
+      return '';
+    }
+
+    function obtenerDDirecto() {
+      try {
+        var hash = window.location.hash || '';
+        if (hash.startsWith('#')) hash = hash.substring(1);
+        if (hash) {
+          if (hash.startsWith('d=')) {
+            return decodeURIComponent(hash.substring(2));
+          }
+          var mHash = hash.match(/(?:^|&)d=([^&]+)/);
+          if (mHash && mHash[1]) {
+            return decodeURIComponent(mHash[1]);
+          }
+        }
+        var search = window.location.search || '';
+        if (search.startsWith('?')) search = search.substring(1);
+        if (search) {
+          var mSearch = search.match(/(?:^|&)d=([^&]+)/);
+          if (mSearch && mSearch[1]) {
+            return decodeURIComponent(mSearch[1]);
+          }
+        }
+      } catch (e) {
+        console.warn('Error extrayendo parametro d:', e);
+      }
+      return '';
+    }
+
+    function b64DecodeUnicodeView(b64) {
+      if (!b64) return '';
+      var clean = b64.replace(/ /g, '+').replace(/-/g, '+').replace(/_/g, '/');
+      while (clean.length % 4 !== 0) {
+        clean += '=';
+      }
+      try {
+        var binary = atob(clean);
+        return decodeURIComponent(Array.prototype.map.call(binary, function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+      } catch (e) {
+        return decodeURIComponent(escape(atob(clean)));
+      }
+    }
+
+    function normalizarPayload(d) {
+      if (!d) return null;
+      if (d.t === 'h') {
+        return {
+          ok: true,
+          tipo: 'horario',
+          enlace: { nombre: (d.e && d.e.n) || '', tipo: (d.e && d.e.t) || '', token: (d.e && d.e.k) || '' },
+          calendario: {
+            id: (d.c && d.c.id) || '',
+            nombre: (d.c && d.c.n) || '',
+            desde: (d.c && d.c.d) || '',
+            hasta: (d.c && d.c.h) || '',
+            cierres: (d.c && d.c.ci) || [],
+            festivos: (d.c && d.c.fe) || [],
+            turnos: (d.c && d.c.tu) || {
+              manana: { nombre: 'Mañana', inicio: '10:00', fin: '16:00' },
+              tarde: { nombre: 'Comida', inicio: '13:00', fin: '16:30' },
+              cena: { nombre: 'Cena', inicio: '19:30', fin: '23:30' }
+            },
+            turnosActivosPorDia: (d.c && d.c.ta) || {},
+            excepciones: (d.c && d.c.ex) || []
+          },
+          empleados: (d.em || []).map(function(item) {
+            if (Array.isArray(item)) {
+              return { id: item[0], name: item[1], dept: item[2], hours: item[3] };
+            }
+            return item;
+          }),
+          asignaciones: (d.a || []).map(function(item) {
+            if (Array.isArray(item)) {
+              return {
+                date: item[0],
+                shiftKey: item[1],
+                shiftName: item[2],
+                start: item[3],
+                end: item[4],
+                hours: item[5],
+                role: item[6],
+                employeeId: item[7],
+                employeeName: item[8] || ''
+              };
+            }
+            return item;
+          }),
+          resumen: (d.r || []).map(function(item) {
+            if (Array.isArray(item)) {
+              return {
+                employeeId: item[0],
+                employeeName: item[1],
+                role: item[2],
+                contractHours: item[3],
+                workedHours: item[4],
+                saldoPeriodo: item[5],
+                saldoTotalAcumulado: item[6],
+                saldoHorasAnterior: item[7] || 0,
+                esInactivo: item[8] !== undefined ? Boolean(item[8]) : false
+              };
+            }
+            return item;
+          })
+        };
+      } else if (d.t === 'c') {
+        return {
+          ok: true,
+          tipo: 'compensacion',
+          enlace: { nombre: (d.e && d.e.n) || '', token: (d.e && d.e.k) || '' },
+          compensacion: d.co
+        };
+      }
+      return d;
+    }
+
+    function procesarRespuestaServidor(respuesta) {
+      if (!respuesta || !respuesta.ok) {
+        var motivo = (respuesta && (respuesta.motivo || respuesta.mensaje)) || 'Enlace no válido o caducado.';
+        document.getElementById('contenidoPrincipal').innerHTML =
+          '<div class="estado-error"><div class="icono-error">⚠️</div>' +
+          '<strong>Enlace no disponible</strong><p style="margin-top:8px;font-size:13px;">' + escaparHTML(motivo) + '</p></div>';
+        return;
+      }
+
+      if (respuesta.tipo === 'horario') {
+        renderHorario(respuesta);
+      } else if (respuesta.tipo === 'compensacion') {
+        renderCompensacion(respuesta);
+      } else {
+        document.getElementById('contenidoPrincipal').innerHTML =
+          '<div class="estado-error"><div class="icono-error">⚠️</div>' +
+          '<strong>Tipo de vista no reconocido</strong></div>';
+      }
+    }
+
+    function initViewPage() {
+      // 1. Soporte enlaces ultracompactos comprimidos con LZ-String (#z=...)
+      var z = obtenerZDirecto();
+      if (z) {
+        try {
+          var jsonStrZ = LZString.decompressFromEncodedURIComponent(z);
+          if (jsonStrZ) {
+            // Tolerar posibles anomalías en necesidades
+            jsonStrZ = jsonStrZ.replace(/"necesidades"\s*:\s*\{([^}]+)\}/g, function(match, inner) {
+              return '"necesidades":{' + inner.replace(/"(PIZZERIA|COCINA|SALA)"\s*,\s*"?(\d+)"?/g, '"$1":$2') + '}';
+            });
+            jsonStrZ = jsonStrZ.replace(/\}\}\}\}\]/g, '}}}]');
+            var datosDirectosZ = JSON.parse(jsonStrZ);
+            if (datosDirectosZ) {
+              if (datosDirectosZ.t === 'h' || datosDirectosZ.t === 'c') {
+                datosDirectosZ = normalizarPayload(datosDirectosZ);
+              }
+              if (datosDirectosZ.ok && (datosDirectosZ.tipo === 'horario' || datosDirectosZ.tipo === 'compensacion')) {
+                procesarRespuestaServidor(datosDirectosZ);
+                if (typeof window.ejecutarEnClienteLocal === 'function') {
+                  try {
+                    window.ejecutarEnClienteLocal('registrarDatosVistaPublica', [datosDirectosZ]);
+                  } catch(ignore) {}
+                }
+                return;
+              }
+            }
+          }
+        } catch (eZ) {
+          console.warn('Aviso decodificando enlace comprimido z:', eZ);
+        }
+      }
+
+      // 2. Soporte enlaces autónomos portátiles legacy (#d=...)
+      var d = obtenerDDirecto();
+      if (d) {
+        try {
+          var jsonStr = b64DecodeUnicodeView(d);
+          // Reparar JSON corrupto si procede de enlaces con formato anómalo
+          jsonStr = jsonStr.replace(/"necesidades"\s*:\s*\{([^}]+)\}/g, function(match, inner) {
+            return '"necesidades":{' + inner.replace(/"(PIZZERIA|COCINA|SALA)"\s*,\s*"?(\d+)"?/g, '"$1":$2') + '}';
+          });
+          jsonStr = jsonStr.replace(/\}\}\}\}\]/g, '}}}]');
+          var datosDirectos = JSON.parse(jsonStr);
+          if (datosDirectos) {
+            if (datosDirectos.t === 'h' || datosDirectos.t === 'c') {
+              datosDirectos = normalizarPayload(datosDirectos);
+            }
+            if (datosDirectos.ok && (datosDirectos.tipo === 'horario' || datosDirectos.tipo === 'compensacion')) {
+              procesarRespuestaServidor(datosDirectos);
+              if (typeof window.ejecutarEnClienteLocal === 'function') {
+                try {
+                  window.ejecutarEnClienteLocal('registrarDatosVistaPublica', [datosDirectos]);
+                } catch(ignore) {}
+              }
+              return;
+            }
+          }
+        } catch (eDec) {
+          console.warn('Aviso: decodificación enlace directo:', eDec);
+        }
+      }
+
+      var pagina = '<?= typeof pagina !== "undefined" ? pagina : "" ?>';
+      var token = '<?= typeof token !== "undefined" ? token : "" ?>';
+
+      pagina = String(pagina || obtenerParametroUrl('page') || '').replace(/&quot;/g, '').replace(/^"|"$/g, '').trim();
+      token  = String(token || obtenerParametroUrl('token') || '').replace(/&quot;/g, '').replace(/^"|"$/g, '').trim();
 
       if (typeof google === 'undefined' || !google.script || !google.script.run) {
+        // Modalità GitHub Pages con Local Engine
+        if (typeof window.ejecutarEnClienteLocal === 'function') {
+          try {
+            var resLocal = window.ejecutarEnClienteLocal('obtenerVistaPublica', [pagina, token]);
+            procesarRespuestaServidor(resLocal);
+          } catch (e) {
+            document.getElementById('contenidoPrincipal').innerHTML =
+              '<div class="estado-error"><div class="icono-error">⚠️</div>' +
+              '<strong>Enlace no disponible</strong><p style="margin-top:8px;font-size:13px;">' + escaparHTML(e.message) + '</p></div>';
+          }
+          return;
+        }
+
         document.getElementById('contenidoPrincipal').innerHTML =
-          '<div class="estado-error"><div class="icono-error">&#9888;&#65039;</div>' +
-          '<strong>Error de entorno</strong>' +
-          '<p style="margin-top:8px;font-size:13px;">Este enlace debe abrirse directamente desde la aplicaci&#243;n web de Google.</p></div>';
+          '<div class="estado-error"><div class="icono-error">⚠️</div>' +
+          '<strong>Error de entorno</strong><p style="margin-top:8px;font-size:13px;">No se ha detectado el entorno de ejecución.</p></div>';
         return;
       }
 
       google.script.run
-        .withSuccessHandler(function(datos) {
-          if (!datos || !datos.ok) {
-            var motivo = datos && datos.motivo ? datos.motivo : 'Enlace no v&#225;lido o caducado.';
-            document.getElementById('contenidoPrincipal').innerHTML =
-              '<div class="estado-error"><div class="icono-error">&#128274;</div>' +
-              '<strong>Acceso no permitido</strong>' +
-              '<p style="margin-top:8px;font-size:13px;">'+escaparHTML(motivo)+'</p></div>';
-            return;
-          }
-          if (datos.tipo === 'horario') {
-            renderHorario(datos);
-          } else if (datos.tipo === 'compensacion') {
-            renderCompensacion(datos);
-          }
+        .withSuccessHandler(function(res) {
+          procesarRespuestaServidor(res);
         })
         .withFailureHandler(function(err) {
-          var msg = err && err.message ? err.message : String(err);
           document.getElementById('contenidoPrincipal').innerHTML =
-            '<div class="estado-error"><div class="icono-error">&#9888;&#65039;</div>' +
-            '<strong>Error al cargar los datos</strong>' +
-            '<p style="margin-top:8px;font-size:13px;">'+escaparHTML(msg)+'</p></div>';
+            '<div class="estado-error"><div class="icono-error">⚠️</div>' +
+            '<strong>Error del servidor</strong><p style="margin-top:8px;font-size:13px;">' + escaparHTML(err && err.message ? err.message : String(err)) + '</p></div>';
         })
         .obtenerVistaPublica(pagina, token);
-    });
-  </script>
+    }
+    window.addEventListener('DOMContentLoaded', initViewPage);
+    window.onload = initViewPage;
+  
+  /* ========================================================
+     SISTEMA DE SEGURIDAD: ANTI-IMPRESIÓN Y ANTI-CAPTURA DE PANTALLA
+     ======================================================== */
+  function mostrarAvisoSeguridad(mensaje) {
+    var toast = document.getElementById('toast-seguridad');
+    if (!toast) return;
+    toast.textContent = mensaje || '⚠️ Acción restringida por confidencialidad.';
+    toast.style.display = 'block';
+    if (window._toastSeguridadTimer) clearTimeout(window._toastSeguridadTimer);
+    window._toastSeguridadTimer = setTimeout(function() {
+      toast.style.display = 'none';
+    }, 2800);
+  }
+
+  function oscurecerTemporalmente() {
+    var priv = document.getElementById('pantalla-privacidad');
+    if (priv) {
+      priv.style.display = 'flex';
+      setTimeout(function() {
+        if (document.hasFocus()) {
+          priv.style.display = 'none';
+        }
+      }, 1500);
+    }
+  }
+
+  // 1. Escudo al perder el foco (Snipping Tool, Grabadores de pantalla, Win+Shift+S, cambiar de app)
+  window.addEventListener('blur', function() {
+    var priv = document.getElementById('pantalla-privacidad');
+    if (priv) priv.style.display = 'flex';
+  });
+
+  window.addEventListener('focus', function() {
+    var priv = document.getElementById('pantalla-privacidad');
+    if (priv) priv.style.display = 'none';
+  });
+
+  // 2. Detección de tecla PrintScreen (vacía portapapeles y activa escudo)
+  window.addEventListener('keyup', function(e) {
+    if (e.key === 'PrintScreen' || e.keyCode === 44) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText('');
+      }
+      oscurecerTemporalmente();
+      mostrarAvisoSeguridad('⚠️ Capturas de pantalla bloqueadas por protección de datos.');
+    }
+  });
+
+  // 3. Bloqueo de atajos de teclado (Impresión, Guardar, Copiar, Inspeccionar)
+  window.addEventListener('keydown', function(e) {
+    var k = (e.key || '').toLowerCase();
+    var ctrl = e.ctrlKey || e.metaKey;
+
+    // Ctrl+P / Cmd+P (Imprimir)
+    if (ctrl && k === 'p') {
+      e.preventDefault();
+      e.stopPropagation();
+      mostrarAvisoSeguridad('⚠️ La impresión está deshabilitada por confidencialidad.');
+      return false;
+    }
+
+    // Ctrl+S / Cmd+S (Guardar página)
+    if (ctrl && k === 's') {
+      e.preventDefault();
+      e.stopPropagation();
+      mostrarAvisoSeguridad('⚠️ El guardado local está deshabilitado.');
+      return false;
+    }
+
+    // Ctrl+U / Cmd+U (Ver código fuente)
+    if (ctrl && k === 'u') {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+
+    // Ctrl+C / Cmd+C (Copiar)
+    if (ctrl && (k === 'c' || k === 'x')) {
+      e.preventDefault();
+      e.stopPropagation();
+      mostrarAvisoSeguridad('⚠️ La copia de texto está bloqueada.');
+      return false;
+    }
+
+    // F12 o herramientas de desarrollador
+    if (e.keyCode === 123 || e.key === 'F12' || (ctrl && e.shiftKey && (k === 'i' || k === 'j' || k === 'c'))) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+  }, true);
+
+  // 4. Bloqueo de clic derecho (menú contextual)
+  document.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+    mostrarAvisoSeguridad('⚠️ Menú contextual deshabilitado.');
+    return false;
+  });
+
+  // 5. Bloqueo de eventos de copia y arrastre
+  document.addEventListener('copy', function(e) {
+    e.preventDefault();
+    if (e.clipboardData) e.clipboardData.setData('text/plain', '');
+    mostrarAvisoSeguridad('⚠️ Copia bloqueada.');
+    return false;
+  });
+  document.addEventListener('dragstart', function(e) {
+    e.preventDefault();
+    return false;
+  });
+
+  // 6. Evento de impresión nativo del navegador
+  window.addEventListener('beforeprint', function(e) {
+    document.body.style.display = 'none';
+    mostrarAvisoSeguridad('⚠️ Impresión bloqueada.');
+  });
+  window.addEventListener('afterprint', function() {
+    document.body.style.display = '';
+  });
+
+</script>
 </body>
 </html>
