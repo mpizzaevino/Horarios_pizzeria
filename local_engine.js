@@ -2275,6 +2275,50 @@
         return { ok: true };
     }
   };
+  window.sincronizarCacheLocal = function(nombreFuncion, args, resultado) {
+    if (!resultado) return;
+    try {
+      if (nombreFuncion === 'obtenerDatosIniciales') {
+        if (resultado.empleados) setLocalJson(STORAGE_KEYS.EMPLEADOS, resultado.empleados);
+        if (resultado.calendarios) setLocalJson(STORAGE_KEYS.CALENDARIOS, resultado.calendarios);
+        if (resultado.plantillas) setLocalJson(STORAGE_KEYS.PLANTILLAS, resultado.plantillas);
+        if (resultado.enlaces) setLocalJson(STORAGE_KEYS.ENLACES, resultado.enlaces);
+        if (resultado.ajustes) setLocalJson(STORAGE_KEYS.AJUSTES, resultado.ajustes);
+      } else if (nombreFuncion === 'generarCalendario' || nombreFuncion === 'guardarCalendarioEditado') {
+        const cals = getLocalJson(STORAGE_KEYS.CALENDARIOS, []);
+        const cal = resultado.calendario || resultado;
+        if (cal && cal.id) {
+          const idx = cals.findIndex(item => item.id === cal.id);
+          if (idx >= 0) cals[idx] = cal; else cals.unshift(cal);
+          setLocalJson(STORAGE_KEYS.CALENDARIOS, cals);
+        }
+      } else if (nombreFuncion === 'guardarPlantilla') {
+        const plantillas = getLocalJson(STORAGE_KEYS.PLANTILLAS, []);
+        const p = resultado.plantilla || resultado;
+        if (p && p.id) {
+          const idx = plantillas.findIndex(item => item.id === p.id);
+          if (idx >= 0) plantillas[idx] = p; else plantillas.push(p);
+          setLocalJson(STORAGE_KEYS.PLANTILLAS, plantillas);
+        }
+      } else if (nombreFuncion === 'eliminarPlantilla') {
+        const id = args && args[1];
+        if (id) {
+          const plantillas = getLocalJson(STORAGE_KEYS.PLANTILLAS, []).filter(p => p.id !== String(id));
+          setLocalJson(STORAGE_KEYS.PLANTILLAS, plantillas);
+        }
+      } else if (nombreFuncion === 'guardarEmpleado') {
+        const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, []);
+        const emp = resultado.empleado || resultado;
+        if (emp && emp.id) {
+          const idx = emps.findIndex(e => e.id === emp.id);
+          if (idx >= 0) emps[idx] = emp; else emps.push(emp);
+          setLocalJson(STORAGE_KEYS.EMPLEADOS, emps);
+        }
+      }
+    } catch (eSync) {
+      console.warn('Aviso sincronizando cache local:', eSync);
+    }
+  };
 
   initStorageIfNeeded();
 })(window);

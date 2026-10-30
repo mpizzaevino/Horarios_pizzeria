@@ -2375,8 +2375,8 @@
 
         if (actualizado) {
           ESTADO.calendarioActual = actualizado;
-          renderizarCalendarioActual();
         }
+        renderizarCalendarioActual();
       }
 
       document.getElementById('app').classList.remove('oculto');
@@ -4048,7 +4048,12 @@
       }
 
       try {
+        mostrarCarga();
         const calendario = await llamarServidor('generarCalendario', [ESTADO.tokenSesion, datos]);
+
+        if (!calendario || !calendario.id) {
+          throw new Error('El servidor no devolvió los datos del calendario generado.');
+        }
 
         ESTADO.calendarioActual = calendario;
         ESTADO.cierresPendientes = [];
@@ -4065,9 +4070,34 @@
         // F5: se limpia el preset de nombre para el próximo calendario a crear.
         reiniciarNombreCalendarioUI();
 
+        // Asegurar que el calendario esté disponible en la lista inmediatamente
+        if (!ESTADO.calendarios.some(function (c) { return c.id === calendario.id; })) {
+          ESTADO.calendarios.unshift(calendario);
+        }
+
+        // Renderizar inmediatamente la tabla visual del calendario generado
+        renderizarCalendarioActual();
+        renderizarCalendarios();
+        rellenarSelectCalendarios();
+
+        // Desplazar suavemente hacia la vista del calendario generado
+        const zona = document.getElementById('zonaCalendario');
+        if (zona) {
+          zona.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        // Recargar datos en segundo plano para consolidar estado
         await cargarDatos();
-        notificar('Calendario generado. Revisa las incidencias.', 'ok');
+
+        // Garantizar que la tabla del calendario generado siga visible
+        if (ESTADO.calendarioActual) {
+          renderizarCalendarioActual();
+        }
+
+        ocultarCarga();
+        notificar('Calendario generado y guardado en la nube con éxito.', 'ok');
       } catch (error) {
+        ocultarCarga();
         notificar(error.message, 'error');
       }
     }
