@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 
 <head>
@@ -2085,6 +2085,28 @@
 
     const URL_GOOGLE_SCRIPT = 'https://script.google.com/macros/s/AKfycbwk1VczSZllFDoGRU5NMFv30OpHK1QOdxUSoGReQDNx0yQav90dNIJ1hNBbo3wRqo--_g/exec';
 
+    // Operaciones críticas: si fallan en GAS (ej. límite 9KB), se activa modo local completo
+    // para garantizar consistencia (calendario + links + compensos todos en localStorage)
+    const _OPS_CRITICAS_LOCAL = ['generarCalendario', 'guardarCalendarioEditado'];
+
+    // Bandera global: true cuando GAS falló en una op. crítica → todas las llamadas van a localStorage
+    window._MODO_LOCAL_FORZADO = false;
+
+    function activarModoLocalForzado() {
+      if (!window._MODO_LOCAL_FORZADO) {
+        window._MODO_LOCAL_FORZADO = true;
+        actualizarIndicadorConexion(false);
+        // Reutilizar el token local que acepta el motor local_engine.js
+        if (typeof ESTADO !== 'undefined' && ESTADO && ESTADO.tokenSesion) {
+          ESTADO.tokenSesion = 'session_local_gh_pages';
+        }
+        console.warn('[LOCAL MODE] GAS no disponible para calendarios. Usando localStorage.');
+        try {
+          notificar('⚠️ Modo local activo: los calendarios se guardan en este navegador. Datos de empleados y plantillas siguen en la nube.', 'aviso');
+        } catch (e) {}
+      }
+    }
+
     function llamarServidor(nombreFuncion, argumentos) {
       const args = argumentos || [];
 
@@ -2105,7 +2127,19 @@
         });
       }
 
-      // 2. Entorno GitHub Pages / Navegador Standalone: Conexión ONLINE directa con Google Apps Script
+      // 2. Modo LOCAL FORZADO: GAS falló previamente en una op. crítica → usar solo localStorage
+      if (window._MODO_LOCAL_FORZADO && typeof window.ejecutarEnClienteLocal === 'function') {
+        return new Promise(function (resolve, reject) {
+          try {
+            const res = window.ejecutarEnClienteLocal(nombreFuncion, args);
+            resolve(res);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }
+
+      // 3. Entorno GitHub Pages / Navegador Standalone: Conexión ONLINE con Google Apps Script
       return new Promise(function (resolve, reject) {
         fetch(URL_GOOGLE_SCRIPT, {
           method: 'POST',
@@ -2132,7 +2166,22 @@
           }
 
           if (json && json.ok === false) {
-            throw new Error(json.error || 'Error reportado por Google Apps Script');
+            const errMsg = json.error || 'Error reportado por Google Apps Script';
+            // Para operaciones críticas de calendario: activar modo local y reintentar localmente
+            if (_OPS_CRITICAS_LOCAL.indexOf(nombreFuncion) >= 0 &&
+                typeof window.ejecutarEnClienteLocal === 'function') {
+              console.warn('[FALLBACK LOCAL] GAS rechazó ' + nombreFuncion + ': ' + errMsg + '. Activando modo local.');
+              activarModoLocalForzado();
+              try {
+                const resLocal = window.ejecutarEnClienteLocal(nombreFuncion, args);
+                resolve(resLocal);
+                return;
+              } catch (errLocal) {
+                reject(new Error(errMsg));
+                return;
+              }
+            }
+            throw new Error(errMsg);
           }
 
           const resultado = (json && json.data !== undefined) ? json.data : json;
@@ -2148,13 +2197,17 @@
           resolve(resultado);
         })
         .catch(function (errorRed) {
-          console.warn('Llamada online fallida para ' + nombreFuncion + ':', errorRed);
+          console.warn('[FALLBACK LOCAL] Fallo de red para ' + nombreFuncion + ':', errorRed);
 
-          // Si falla la conexión online y existe el motor local, avisar y usar local como fallback
+          // Si falla la conexión y existe el motor local, usar localStorage como fallback
           if (typeof window.ejecutarEnClienteLocal === 'function') {
             try {
-              console.info('Usando copia local temporal para:', nombreFuncion);
-              actualizarIndicadorConexion(false);
+              // Para ops críticas: activar modo local forzado para mantener consistencia
+              if (_OPS_CRITICAS_LOCAL.indexOf(nombreFuncion) >= 0) {
+                activarModoLocalForzado();
+              } else {
+                actualizarIndicadorConexion(false);
+              }
               const resLocal = window.ejecutarEnClienteLocal(nombreFuncion, args);
               resolve(resLocal);
               return;
@@ -2176,6 +2229,11 @@
           el.style.color = '#15803d';
           el.style.background = '#f0fdf4';
           el.style.borderColor = '#bbf7d0';
+        } else if (window._MODO_LOCAL_FORZADO) {
+          el.innerHTML = '<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#ef4444; margin-right:5px;"></span>Modo Local (calendarios en navegador)';
+          el.style.color = '#b91c1c';
+          el.style.background = '#fef2f2';
+          el.style.borderColor = '#fca5a5';
         } else {
           el.innerHTML = '<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#eab308; margin-right:5px;"></span>Offline (Copia Local)';
           el.style.color = '#854d0e';
@@ -4095,7 +4153,10 @@
         }
 
         ocultarCarga();
-        notificar('Calendario generado y guardado en la nube con éxito.', 'ok');
+        const msgCal = window._MODO_LOCAL_FORZADO
+          ? 'Calendario generado y guardado localmente en este navegador. (Modo local activo)'
+          : 'Calendario generado y guardado en la nube con éxito.';
+        notificar(msgCal, 'ok');
       } catch (error) {
         ocultarCarga();
         notificar(error.message, 'error');
@@ -5042,7 +5103,7 @@
         renderizarCalendarioActual();
 
         try {
-          await ejecutarEnServidor('guardarCalendarioEditado', [null, calendario]);
+          await llamarServidor('guardarCalendarioEditado', [ESTADO.tokenSesion, calendario]);
         } catch (e) {
           console.warn('Error guardando calendario:', e);
         }
@@ -5070,7 +5131,7 @@
       renderizarCalendarioActual();
 
       try {
-        await ejecutarEnServidor('guardarCalendarioEditado', [null, calendario]);
+        await llamarServidor('guardarCalendarioEditado', [ESTADO.tokenSesion, calendario]);
       } catch (e) {
         console.warn('Error guardando calendario:', e);
       }
@@ -5110,7 +5171,7 @@
       renderizarCalendarioActual();
 
       try {
-        await ejecutarEnServidor('guardarCalendarioEditado', [null, calendario]);
+        await llamarServidor('guardarCalendarioEditado', [ESTADO.tokenSesion, calendario]);
       } catch (e) {
         console.warn('Error guardando calendario:', e);
       }
@@ -5133,7 +5194,7 @@
       renderizarCalendarioActual();
 
       try {
-        await ejecutarEnServidor('guardarCalendarioEditado', [null, calendario]);
+        await llamarServidor('guardarCalendarioEditado', [ESTADO.tokenSesion, calendario]);
       } catch (e) {
         console.warn('Error guardando calendario:', e);
       }
