@@ -1571,12 +1571,15 @@
         const cal = args[1];
         const cals = getLocalJson(STORAGE_KEYS.CALENDARIOS, []);
         const idx = cals.findIndex(function (c) { return c.id === cal.id; });
-        if (idx < 0) throw new Error('Calendario no encontrado.');
         const emps = getLocalJson(STORAGE_KEYS.EMPLEADOS, EMPLEADOS_DEFAULT);
         const ajustes = getLocalJson(STORAGE_KEYS.AJUSTES, {});
         cal.incidencias = recalcularIncidenciasCalendarioLocal(cal, emps, ajustes);
         cal.updatedAt = new Date().toISOString();
-        cals[idx] = cal;
+        if (idx < 0) {
+          cals.unshift(cal);
+        } else {
+          cals[idx] = cal;
+        }
         setLocalJson(STORAGE_KEYS.CALENDARIOS, cals);
         return { ok: true, calendario: cal };
       }
@@ -1971,15 +1974,16 @@
           compensationId: compId,
           periodo: cal.desde + ' - ' + cal.hasta,
           contractHours: resumen.contractHours,
-          contractHoursEfectivas: contractHoursEfectivas,
-          workedHours: resumen.workedHours,
+          contractHoursEfectivas: resumen.contractHoursEfectivas || resumen.contractHours,
+          workedHours: resumen.workedHours || 0,
           workedFestiveHours: finalFest,
-          saldoAnterior: saldoAnt,
+          saldoAnterior: resumen.saldoHorasAnterior || 0,
           saldoPeriodo: resumen.saldoPeriodo || 0,
           ajusteManual: adj,
+          debitoDeducido: horasDeducidasDebito,
           finalExtraHours: finalOrd,
-          saldoResultante: saldoRestante,
-          tipo: saldoRestante > 0 ? 'DEFICIT' : 'AL_DIA',
+          saldoResultante: saldoRestanteDebito,
+          tipo: saldoRestanteDebito > 0 ? 'DEFICIT' : (finalOrd > 0 ? 'CREDITO' : 'NEUTRO'),
           origen: 'Generación de recibo de compenso Hosteleria',
           createdAt: new Date().toISOString()
         });

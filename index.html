@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 
 <head>
@@ -2085,28 +2085,6 @@
 
     const URL_GOOGLE_SCRIPT = 'https://script.google.com/macros/s/AKfycbwk1VczSZllFDoGRU5NMFv30OpHK1QOdxUSoGReQDNx0yQav90dNIJ1hNBbo3wRqo--_g/exec';
 
-    // Operaciones críticas: si fallan en GAS (ej. límite 9KB), se activa modo local completo
-    // para garantizar consistencia (calendario + links + compensos todos en localStorage)
-    const _OPS_CRITICAS_LOCAL = ['generarCalendario', 'guardarCalendarioEditado'];
-
-    // Bandera global: true cuando GAS falló en una op. crítica → todas las llamadas van a localStorage
-    window._MODO_LOCAL_FORZADO = false;
-
-    function activarModoLocalForzado() {
-      if (!window._MODO_LOCAL_FORZADO) {
-        window._MODO_LOCAL_FORZADO = true;
-        actualizarIndicadorConexion(false);
-        // Reutilizar el token local que acepta el motor local_engine.js
-        if (typeof ESTADO !== 'undefined' && ESTADO && ESTADO.tokenSesion) {
-          ESTADO.tokenSesion = 'session_local_gh_pages';
-        }
-        console.warn('[LOCAL MODE] GAS no disponible para calendarios. Usando localStorage.');
-        try {
-          notificar('⚠️ Modo local activo: los calendarios se guardan en este navegador. Datos de empleados y plantillas siguen en la nube.', 'aviso');
-        } catch (e) {}
-      }
-    }
-
     function llamarServidor(nombreFuncion, argumentos) {
       const args = argumentos || [];
 
@@ -2127,19 +2105,7 @@
         });
       }
 
-      // 2. Modo LOCAL FORZADO: GAS falló previamente en una op. crítica → usar solo localStorage
-      if (window._MODO_LOCAL_FORZADO && typeof window.ejecutarEnClienteLocal === 'function') {
-        return new Promise(function (resolve, reject) {
-          try {
-            const res = window.ejecutarEnClienteLocal(nombreFuncion, args);
-            resolve(res);
-          } catch (e) {
-            reject(e);
-          }
-        });
-      }
-
-      // 3. Entorno GitHub Pages / Navegador Standalone: Conexión ONLINE con Google Apps Script
+      // 2. Entorno GitHub Pages / Standalone: Conexión ONLINE con Google Apps Script
       return new Promise(function (resolve, reject) {
         fetch(URL_GOOGLE_SCRIPT, {
           method: 'POST',
@@ -2162,24 +2128,16 @@
           try {
             json = JSON.parse(texto);
           } catch (eParse) {
-            throw new Error('El script de Google devolvió una respuesta no válida (comprueba que doPost esté publicado en Apps Script).');
+            throw new Error('El script de Google devolvió una respuesta no válida (comprueba que el proyecto esté publicado correctamente).');
           }
 
           if (json && json.ok === false) {
             const errMsg = json.error || 'Error reportado por Google Apps Script';
-            // Para operaciones críticas de calendario: activar modo local y reintentar localmente
-            if (_OPS_CRITICAS_LOCAL.indexOf(nombreFuncion) >= 0 &&
-                typeof window.ejecutarEnClienteLocal === 'function') {
-              console.warn('[FALLBACK LOCAL] GAS rechazó ' + nombreFuncion + ': ' + errMsg + '. Activando modo local.');
-              activarModoLocalForzado();
-              try {
-                const resLocal = window.ejecutarEnClienteLocal(nombreFuncion, args);
-                resolve(resLocal);
-                return;
-              } catch (errLocal) {
-                reject(new Error(errMsg));
-                return;
-              }
+            // Si la sesión caducó, limpiar para pedir login
+            if (errMsg.toLowerCase().indexOf('sesión') >= 0 || errMsg.toLowerCase().indexOf('sesion') >= 0) {
+              sessionStorage.removeItem(claveSesionStorage());
+              ESTADO.tokenSesion = null;
+              mostrarModalLogin(false);
             }
             throw new Error(errMsg);
           }
@@ -2197,17 +2155,13 @@
           resolve(resultado);
         })
         .catch(function (errorRed) {
-          console.warn('[FALLBACK LOCAL] Fallo de red para ' + nombreFuncion + ':', errorRed);
+          console.warn('Llamada a Google Apps Script fallida para ' + nombreFuncion + ':', errorRed);
+          actualizarIndicadorConexion(false);
 
-          // Si falla la conexión y existe el motor local, usar localStorage como fallback
+          // Si falla la conexión de red y existe el motor local offline, usarlo como respaldo temporal
           if (typeof window.ejecutarEnClienteLocal === 'function') {
             try {
-              // Para ops críticas: activar modo local forzado para mantener consistencia
-              if (_OPS_CRITICAS_LOCAL.indexOf(nombreFuncion) >= 0) {
-                activarModoLocalForzado();
-              } else {
-                actualizarIndicadorConexion(false);
-              }
+              console.info('Usando copia local de emergencia para:', nombreFuncion);
               const resLocal = window.ejecutarEnClienteLocal(nombreFuncion, args);
               resolve(resLocal);
               return;
@@ -2229,11 +2183,6 @@
           el.style.color = '#15803d';
           el.style.background = '#f0fdf4';
           el.style.borderColor = '#bbf7d0';
-        } else if (window._MODO_LOCAL_FORZADO) {
-          el.innerHTML = '<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#ef4444; margin-right:5px;"></span>Modo Local (calendarios en navegador)';
-          el.style.color = '#b91c1c';
-          el.style.background = '#fef2f2';
-          el.style.borderColor = '#fca5a5';
         } else {
           el.innerHTML = '<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#eab308; margin-right:5px;"></span>Offline (Copia Local)';
           el.style.color = '#854d0e';
@@ -2392,6 +2341,8 @@
       try {
         await cargarDatos();
         document.getElementById('app').classList.remove('oculto');
+        // Migrar automáticamente calendarios locales a GAS si están disponibles
+        migrarDatosLocalesAGAS().catch(function(e) { console.warn('[MIGRACION]', e); });
       } catch (error) {
         // Sesión caducada o inválida: se limpia y se vuelve a pedir login.
         sessionStorage.removeItem(claveSesionStorage());
@@ -2439,6 +2390,55 @@
 
       document.getElementById('app').classList.remove('oculto');
       ocultarCarga();
+    }
+
+    /* ==========================
+       SINCRONIZACIÓN AUTOMÁTICA: localStorage → Google Apps Script
+       Si hay calendarios creados localmente en el navegador,
+       los sube a la base de datos de Google Apps Script para que
+       sean accesibles desde cualquier navegador o dispositivo.
+       ========================== */
+
+    async function migrarDatosLocalesAGAS() {
+      if (!ESTADO.tokenSesion) return;
+
+      try {
+        let calsLocales = [];
+        try {
+          const raw = localStorage.getItem('MPV_CALENDARIOS');
+          if (raw) calsLocales = JSON.parse(raw) || [];
+        } catch (e) {}
+
+        if (!Array.isArray(calsLocales) || !calsLocales.length) return;
+
+        // Identificar calendarios locales que NO están todavía en la nube
+        const idsEnGAS = new Set((ESTADO.calendarios || []).map(function(c) { return String(c.id); }));
+        const calsAMigrar = calsLocales.filter(function(c) { return !idsEnGAS.has(String(c.id)); });
+
+        if (!calsAMigrar.length) return;
+
+        console.info('[SINCRONIZACIÓN] Subiendo ' + calsAMigrar.length + ' calendario(s) a Google Apps Script...');
+        notificar('🔄 Sincronizando ' + calsAMigrar.length + ' calendario(s) con la nube...', 'aviso');
+
+        let migrados = 0;
+        for (let i = 0; i < calsAMigrar.length; i++) {
+          const cal = calsAMigrar[i];
+          try {
+            await llamarServidor('guardarCalendarioEditado', [ESTADO.tokenSesion, cal]);
+            migrados++;
+          } catch (eCal) {
+            console.warn('[SINCRONIZACIÓN] Error subiendo calendario ' + (cal.nombre || cal.id) + ':', eCal);
+          }
+        }
+
+        if (migrados > 0) {
+          console.info('[SINCRONIZACIÓN] ' + migrados + ' calendario(s) guardado(s) en Google Apps Script.');
+          await cargarDatos();
+          notificar('✅ ' + migrados + ' calendario(s) sincronizado(s) con la nube. Ya están disponibles en todos los navegadores.', 'ok');
+        }
+      } catch (eMig) {
+        console.warn('[SINCRONIZACIÓN] Error en migración:', eMig);
+      }
     }
 
     function renderizarBadgeCuota(almacenamiento) {
@@ -4153,10 +4153,7 @@
         }
 
         ocultarCarga();
-        const msgCal = window._MODO_LOCAL_FORZADO
-          ? 'Calendario generado y guardado localmente en este navegador. (Modo local activo)'
-          : 'Calendario generado y guardado en la nube con éxito.';
-        notificar(msgCal, 'ok');
+        notificar('Calendario generado y guardado en la nube con éxito.', 'ok');
       } catch (error) {
         ocultarCarga();
         notificar(error.message, 'error');

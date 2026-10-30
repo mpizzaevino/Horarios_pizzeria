@@ -439,7 +439,8 @@ function checkStorageCapacidadSolo_() {
 
   Object.keys(propiedades).forEach(function(clave) {
     const bytes = Utilities.newBlob(propiedades[clave] || '').getBytes().length;
-    bytesPorClave[clave] = bytes;
+    const claveBase = clave.replace(/_chunk_\d+$/, '').replace(/_chunks$/, '');
+    bytesPorClave[claveBase] = (bytesPorClave[claveBase] || 0) + bytes;
     totalBytes += bytes;
   });
 
@@ -458,7 +459,28 @@ function checkStorageCapacidadSolo_() {
 }
 
 function obtenerJson_(clave, valorDefecto) {
-  const valor = PropertiesService.getScriptProperties().getProperty(clave);
+  const props = PropertiesService.getScriptProperties();
+
+  // 1. Soporte para JSON fragmentado (chunks) cuando supera los 9KB
+  const countStr = props.getProperty(clave + '_chunks');
+  if (countStr !== null) {
+    const numChunks = parseInt(countStr, 10) || 0;
+    let fullJson = '';
+    for (let i = 0; i < numChunks; i++) {
+      const chunk = props.getProperty(clave + '_chunk_' + i);
+      if (chunk !== null) {
+        fullJson += chunk;
+      }
+    }
+    try {
+      return JSON.parse(fullJson);
+    } catch (e) {
+      return valorDefecto;
+    }
+  }
+
+  // 2. Almacenamiento directo simple (< 8KB)
+  const valor = props.getProperty(clave);
   if (!valor) return valorDefecto;
   try {
     return JSON.parse(valor);
@@ -468,7 +490,35 @@ function obtenerJson_(clave, valorDefecto) {
 }
 
 function guardarJson_(clave, datos) {
-  PropertiesService.getScriptProperties().setProperty(clave, JSON.stringify(datos));
+  const props = PropertiesService.getScriptProperties();
+  const json = JSON.stringify(datos);
+  const CHUNK_SIZE = 8000; // Margen de seguridad estricto por debajo de 9216 bytes
+
+  if (json.length <= CHUNK_SIZE) {
+    props.setProperty(clave, json);
+    const countPrevio = props.getProperty(clave + '_chunks');
+    if (countPrevio !== null) {
+      props.deleteProperty(clave + '_chunks');
+      const numPrev = parseInt(countPrevio, 10) || 0;
+      for (let i = 0; i < numPrev; i++) {
+        props.deleteProperty(clave + '_chunk_' + i);
+      }
+    }
+  } else {
+    // Fragmentar en chunks seguros
+    const numChunks = Math.ceil(json.length / CHUNK_SIZE);
+    props.setProperty(clave + '_chunks', String(numChunks));
+    for (let i = 0; i < numChunks; i++) {
+      const chunk = json.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      props.setProperty(clave + '_chunk_' + i, chunk);
+    }
+    props.deleteProperty(clave);
+    let extra = numChunks;
+    while (props.getProperty(clave + '_chunk_' + extra) !== null) {
+      props.deleteProperty(clave + '_chunk_' + extra);
+      extra++;
+    }
+  }
 }
 
 function generarId_() {
@@ -712,7 +762,8 @@ function checkStorageCapacity_() {
 
   Object.keys(propiedades).forEach(function(clave) {
     const bytes = Utilities.newBlob(propiedades[clave] || '').getBytes().length;
-    bytesPorClave[clave] = bytes;
+    const claveBase = clave.replace(/_chunk_\d+$/, '').replace(/_chunks$/, '');
+    bytesPorClave[claveBase] = (bytesPorClave[claveBase] || 0) + bytes;
     totalBytes += bytes;
   });
 
@@ -1108,7 +1159,7 @@ function consolidarSaldosCalendario(tokenSesion, calendarId, employeeIdTarget) {
   if (!cal) throw new Error('Calendario no encontrado.');
 
   const empleados = obtenerEmpleados_();
-  const resumenes = calcularResumenCalendario(tokenSesion, cal.id);
+  const resumenes = calcularResumenCalendario(cal.id);
   const historial = obtenerJson_(CONFIG.HISTORIAL_SALDOS, []);
   let actualizados = 0;
 
@@ -1972,13 +2023,16 @@ function guardarCalendarioEditado(tokenSesion, calendario) {
   const calendarios = obtenerCalendarios_();
   const indice = calendarios.findIndex(function(c) { return c.id === calendario.id; });
 
-  if (indice < 0) throw new Error('Calendario no encontrado.');
-
   const empleados = obtenerEmpleados_();
   const ajustes = obtenerJson_(CONFIG.AJUSTES, {});
   calendario.incidencias = recalcularIncidenciasCalendario_(calendario, empleados, ajustes);
   calendario.updatedAt = new Date().toISOString();
-  calendarios[indice] = calendario;
+
+  if (indice < 0) {
+    calendarios.unshift(calendario);
+  } else {
+    calendarios[indice] = calendario;
+  }
   guardarCalendarios_(calendarios);
 
   return { ok: true, calendario: calendario };
